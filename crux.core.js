@@ -8,11 +8,10 @@
 
 (function(window){ //create a private scope
 
-  var version = '0.01',
+  var version = 0.01,
       undefined,
       document = window.document,
-      _memorize = {"elementData": {}},
-      g;
+      _memorize = {"elementData": {}};
 
   /***************************************************************/
   //if they don't exist, add the "forEach", "every" and "filter" methods to all Arrays using prototype
@@ -111,6 +110,7 @@
 
   var hasOwnProperty = Object.prototype.hasOwnProperty,
       toString       = Object.prototype.toString,
+      trim     = String.prototype.trim,
       push     = Array.prototype.push,
       every    = Array.prototype.every,
       forEach  = Array.prototype.forEach,
@@ -146,14 +146,31 @@
     "str":{
       "isUpper": function isUpper(str){ return every.call(str, function(ch){ return (ch.toUpperCase() == ch && ch.toLowerCase() != ch); }); },
       "isLower": function isLower(str){ return every.call(str, function(ch){ return (ch.toLowerCase() == ch && ch.toUpperCase() != ch); }); },
-      "repeat" : function repeat(str, times){ var s = ''; while(times--){ s += str; } return s; },
+      "right"  : function right(str, length){ return (str + '').substr(str.length - Math.min(length, str.length)); },
+      "left"   : function left(str, length){ return (str + '').substr(0, length); },
+      "repeat" : function repeat(str, times){
+      	var s = '';
+      	times = Math.max(times, 0);
+      	if(times > 66){ times = 66;}
+      	while(times--){
+          s += str;
+        }
+        return s;
+      },
       "pad"    : function pad(str, length, padWith, onRight){
+      	length = Math.max(length, 0);
+      	if(length == 0){ return ''; }
         padWith = padWith || '0';
-        str = '' + str;
+        str = onRight ? crux.str.right(str, length) : crux.str.left(str, length);
         // work on this calculation to only take enough repeats to cover the length
-        var s = crux.str.repeat(padWith, (length/padWith.length) + 1 - str.length);
-        str = onRight ? str + s : s + str;
-        return str.length == length ? str : str.substr(0, length);
+        var s = crux.str.repeat(padWith, Math.max(Math.ceil(length/padWith.length) - str.length, 0));
+        return onRight ? str + crux.str.right(s, length-str.length) : crux.str.left(s, length-str.length) + str;
+      },
+      "trimWhitespace": function(str){
+      	if(trim){
+          return trim.call(str);
+      	}
+        return str;
       }
     },
     
@@ -414,7 +431,7 @@
           strClassName,
           re;
           
-      strClassToAdd = trimWhitespace(strClassToAdd);
+      strClassToAdd = crux.str.trimWhitespace(strClassToAdd);
       if(strClassToAdd){
         while(i--){
           el = ar[i];
@@ -437,7 +454,7 @@
               }
             });
             //put the modified/filtered class string back in the element 
-            _setCSSClass(el, trimWhitespace(strClassName));
+            _setCSSClass(el, crux.str.trimWhitespace(strClassName));
           }
         }
       }
@@ -457,7 +474,7 @@
           strClass,
           re;
       //be sure that the original string doesn't have any leading or trailing whitespace
-      classToRemove = trimWhitespace(classToRemove);
+      classToRemove = crux.str.trimWhitespace(classToRemove);
       //if there's still somethng in it
       if(classToRemove){
         while(i--){
@@ -472,7 +489,7 @@
               if(str){
                 //re = getRegExp('removeClass_re1' + str) || addRegExp('removeClass_re1' + str, new RegExp('\\b' + str + '\\b', 'g'));
                 re = getRegExp('hasClass_re1' + str) || addRegExp('hasClass_re1' + str, new RegExp('\\b' + str + '\\b', 'g'));
-                strClass = trimWhitespace(strClass.replace(re, ''));
+                strClass = crux.str.trimWhitespace(strClass.replace(re, ''));
               }
             });
             //now put it back
@@ -495,7 +512,7 @@
           arReturn = [],
           i, el, strClass, re;
           
-      strClassToCheckFor = trimWhitespace(strClassToCheckFor);
+      strClassToCheckFor = crux.str.trimWhitespace(strClassToCheckFor);
       
       for(i=0; i<l; i++){
         el = ar[i];
@@ -543,10 +560,7 @@
         appendElement(el, elAppendTo);
       }
       return el;
-    },
-    
-    
-    "kasjhd" : ""
+    }
   });
   
   
@@ -568,34 +582,22 @@
   crux.classes.Collection.prototype = {
     "constructor": crux.classes.Collection,
     "push"       : push,
-    "forEach"    : function(){ forEach.apply(this, arguments); return this; },
     "splice"     : splice,
     "every"      : every,
     "indexOf"    : indexOf,
-    
-    "toString"   : function toString(){ return Object.prototype.toString.call(this);    },
-    "filter"     : function filter(){   return new this.constructor(filter.call(this)); },
-    "unique"     : function unique(c){  return crux.unique(this, c);                    },
-    "first"      : function first(){    return this.index(0);                           },
-    "last"       : function last(){     return this.index(this.length-1);               },
-    "contains"   : function contains(){ return !!(indexOf.call(ar, val) + 1);           },
-    "empty"      : function empty(){    return this.setLength(0);                       },
-    "toArray"    : function toArray(){  return crux.toArray(this);                      },
-    "DOMElements": function DOMElements(){ return new this.constructor(this.filter(function(obj){ return !!(obj.nodeType && obj.nodeType!=8); })); },
-    
-    "augment": function(obj){
-      crux.augment(this.constructor, obj);
-      return this;
-    },
-    
-    "add": function(){
-      push.apply(this, arguments);
-      return this;
-    },
-    
-    //**************************************************************************************
-    //merge
-    "merge": function(){ return crux.merge.apply(this, crux.toArray([this], arguments)); },
+    "toString"   : function toString(){    return '[object CruxCollection]';                 },
+    "first"      : function first(){       return this.index(0);                             },
+    "last"       : function last(){        return this.index(this.length-1);                 },
+    "contains"   : function contains(){    return !!(indexOf.call(ar, val) + 1);             },
+    "empty"      : function empty(){       return this.setLength(0);                         },
+    "toArray"    : function toArray(){     return crux.toArray(this);                        },
+    "unique"     : function unique(copy){  return crux.unique(this, copy);                   },
+    "forEach"    : function forEach(){     forEach.apply(this, arguments);      return this; },
+    "augment"    : function augment(obj){  crux.augment(this.constructor, obj); return this; },
+    "add"        : function add(){         push.apply(this, arguments);         return this; },
+    "filter"     : function filter(fn){    return new this.constructor(filter.call(this, fn));             },
+    "merge"      : function merge(){       return crux.merge.apply(this, crux.toArray([this], arguments)); },
+    "DOMElements": function DOMElements(){ return this.filter(function(v){ return crux.isElement(v); });   },
     
     "index": function(ind){
       //extra check to make sure the index is below the length property
@@ -633,27 +635,15 @@
         }
       },
       
-      "debug": function(str){
-        log((new Date).getTime() + ': ' + str);
-        this.forEach(function(el){ log(el); });
-        return this;
-      },
-
+      "toString" : function(){ return '[object CruxDOMSelection]'; },
       
-      "toString" : function(){
-        //return this.merge.apply([], this).toString();
-        return '[object DOMSelection]';
-      },
-      
-      
-      "add": function(criteria, selectionContext){
+      "add": function(selector, context){
         var arg,
-            sc = this.resolveContext(selectionContext) || this.selectionContext;
-            
-        if(criteria){
-          criteria = crux.isArray(criteria) || criteria instanceof crux.classes.DOMSelection ? criteria : [criteria];
-          for(var i=0, l=criteria.length; i<l; i++){
-            arg = criteria[i];
+            sc = this.resolveContext(context) || this.selectionContext;
+        if(selector){
+          selector = crux.isArray(selector) || selector instanceof crux.classes.DOMSelection ? selector : [selector];
+          for(var i=0, l=selector.length; i<l; i++){
+            arg = selector[i];
             if(crux.isString(arg)){
               this.merge(this.resolve(arg, sc), sc);
             }
@@ -674,20 +664,8 @@
         return this.unique();
       },
   
-      "resolve": function(selector, context, ar){
-        return (crux.domSelector || Sizzle)(selector, context, ar);
-      },
-      
-      "resolveContext": function(context){
-        return this.resolve(context, document)[0];
-      },
-      
-      "find": function(selector){
-        return new this.constructor((crux.domSelector_matches || Sizzle.matches)(this, selector), this.selectionContext);
-      },
-      
       "drop": function(selector){
-        var ar = (crux.domSelector || Sizzle).matches(selector, this), i = ar.length;
+        var ar = (crux.domSelector_matches || Sizzle.matches)(selector, this), i = ar.length;
         while(i--){ this.splice(this.indexOf(ar[i]), 1); }
         return this;
       },
@@ -699,38 +677,47 @@
       },
       
       "append": function append(parent){
-        parent = crux.isString(parent) ? this.resolve(parent, document)[0] : parent;
-        var fr = document.createDocumentFragment();
-        this.forEach(function(el){ fr.appendChild(el); });
-        parent.appendChild(fr);
+      	var df;
+      	if(this.length){
+          parent = crux.isString(parent) ? this.resolve(parent, document)[0] : parent;
+          df = document.createDocumentFragment();
+          this.DOMElements().forEach(function(el){ df.appendChild(el); });
+          parent.appendChild(df);
+        }
         return this;
       },
       
-      "remove": function remove(){
-        return this.forEach(function(el){ el && el.parentNode && el.parentNode.removeChild(el); });
-      },
-      
-      "addClass" : function addClass(){
-        return this.forEach(function(){});
-      },
+      "resolve"       : function resolve(selector, context, ar){ return (crux.domSelector || Sizzle)(selector, context, ar); },
+      "resolveContext": function resolveContext(context){ return this.resolve(context, document)[0]; },
+      "find"          : function find(selector){ return new this.constructor((crux.domSelector_matches || Sizzle.matches)(this, selector), this.selectionContext); },
+      "remove"        : function remove(){ return this.DOMElements().forEach(function(el){ el && el.parentNode && el.parentNode.removeChild(el); }); },
+      "addClass"      : function addClass(str){ return this.DOMElements().forEach(function(el){ crux.dom.addClass(el, str); }); },
+      "removeClass"   : function addClass(str){ return this.DOMElements().forEach(function(el){ crux.dom.removeClass(el, str); }); },
       
       //***************************************************************
       //childrenOf 
       //returns true if all elements in the collection are DOM descendents of the supplied dom element, otherwise returns false.
       "childrenOf": function childrenOf(parent, jumpIframes){
-        return this.length ? this.every(function(el){ return crux.dom.childOf(el, parent, jumpIframes); }) : false;
+      	var elements = this.DOMElements();
+        return elements.length ? elements.every(function(el){ return crux.dom.childOf(el, parent, jumpIframes); }) : false;
       },
       
       "climb": function climb(fn){
-        return this.every(function(el){ return crux.dom.climb(el, fn); });
+        return this.DOMElements().every(function(el){ return crux.dom.climb(el, fn); });
+      },
+      
+      "debug": function(str){
+        log((new Date).getTime() + ': ' + str);
+        this.forEach(function(el){ log(el); });
+        return this;
       },
       
       "show": function show(){
-        return this.forEach(function(el){ el.style.display = '';});
+        return this.DOMElements().forEach(function(el){ el.style.display = '';});
       },
       
       "hide": function hide(){
-        return this.forEach(function(el){ el.style.display = 'none';});
+        return this.DOMElements().forEach(function(el){ el.style.display = 'none';});
       }
       
       
