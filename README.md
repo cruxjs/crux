@@ -1,4 +1,0 @@
-crux
-====
-
-crux javascript library
