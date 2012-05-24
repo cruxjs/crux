@@ -12,6 +12,7 @@
       undefined,
       document = window.document,
       _cache = {
+        //TODO: do we need a cache object in the gui module?
       },
       _hasOwnProperty = Object.prototype.hasOwnProperty,
       _toString       = Object.prototype.toString,
@@ -28,12 +29,31 @@
       _lastIndexOf = Array.prototype.lastIndexOf;
 
   //
-  if(!_){ throw('Crux GUI requires crux Core');  }
+  if(!_){ throw('Crux GUI requires the Crux Core module');  }
   
   
   var gui = _.gui = {
     "version": version,
-    "supports"  : {}
+    "eventXY": function eventXY(objEvent){
+      //TODO: eliminate the try block here by checking if the document is ready first (when implemented)
+      try{
+        return (
+          (objEvent.pageX || objEvent.pageY) ? 
+          {
+            "x":objEvent.pageX,
+            "y":objEvent.pageY
+          } :
+          {
+            "x": objEvent.clientX + document.body.scrollLeft - document.body.clientLeft,
+            "y": objEvent.clientY + document.body.scrollTop  - document.body.clientTop
+          }
+        );
+      }
+      catch(e){
+        //in IE6 if this method is executed before the page fully loads, it throws an error...
+        return {x:0,y:0};
+      }
+    }
   };
   
   //_.extend(_.gui, {});
@@ -62,6 +82,9 @@
     }
     return null;
   }
+  
+  /***************************************************************/
+  
   
 
 

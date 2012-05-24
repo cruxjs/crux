@@ -147,7 +147,12 @@
       var attr = el.children[0].getAttribute('className') == 'crux' ? 'className' : 'class';
       el = undefined; //release the reference to the created div
       return attr;
+    })(),
+    "customEventsModule": (function(){
+      try{ document.createEvent('CustomEvent'); return 'CustomEvent'; }
+      catch(e){ return 'HTMLEvents'; }
     })()
+    
   };
 
   
@@ -224,6 +229,7 @@
       return (v !== null && typeof v == 'object' && !_.isString(v) && !_.isArray(v) && !_.isFunction(v) && !_.isDate(v) && !_.isElement(v));
     },
     
+    //will hold references to the internal contructor functions or "classes" like DOMSelection
     "classes": {},
     
     "subclass": function(parentClass, objAugmentWith, arParentArgs){
@@ -264,6 +270,33 @@
     "augment": function augment(fn, obj){
       _.extend(fn.prototype, obj);
       return fn;
+    },
+    
+    /***************************************************************/
+    //lastValue
+    //Accepts a chain of properties, runs through to check if they are all defined
+    //and then returns the value of the last property.
+    //If the chain to be checked is not globally accessible (attached to the window object),
+    //then the root object must be passed in the second argument and left out of the chain string.
+    //If any of the chained properties are undefined the function retuns undefined
+    //
+    //eg. alert(typeof lastValue("ddp.a.requestManager.scriptCallbacks"));
+    //    this will display "object" if the ddp.ajax.js file has been included, or "undefined" if it hasn't
+    //eg. if you had an object accsessible from only with your namespace
+    //    i.am.a.property = 'yep';
+    //    lastValue("am.a.property", i); //returns 'yep'
+    //    lastValue("am.potatosalad.property", i); //returns undefined (since potatosalad is undefined)
+    "lastValue": function lastValue(chain, root){
+      var ar = chain.split('.'),
+          //if a second argument was passed, use it, even if the value is undefined
+          p = arguments.length == 2 ? root : window;
+      
+      for(var i=0, l=ar.length; i<l; p = p[ar[i++]]){
+        //if it's undefined or null (with type coercion, null == undefined)
+        if(p == undefined){ return; }
+      }
+      //return the last property even if it's undefined
+      return p;
     },
     
     /***************************************************************/
@@ -400,7 +433,14 @@
     },
     
     
-    
+    "require": function require(moduleNamespace, modulePath, fn){
+      //TODO: add functionality to check passed namespaces
+      if(1==1){
+        fn();
+        return true;
+      }
+      return false;
+    },
     
     
     "g": "b"
