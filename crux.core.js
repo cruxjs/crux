@@ -8,20 +8,28 @@
 
 (function(window){ //create a private scope
 
-  var version = 0.01,
-      undefined,
-      document = window.document,
-      _cache = {
-        "elementData": {},
-        "guidCounter": 0
-      },
-      _hasOwnProperty = Object.prototype.hasOwnProperty,
-      _toString       = Object.prototype.toString,
+  var undefined,
+      _version  = 0.01,
+      document  = window.document,
+      _ce       = function(t,x){ return document.createElement(t,x); },
       _trim     = String.prototype.trim,
       _push     = Array.prototype.push,
       _concat   = Array.prototype.concat,
       _slice    = Array.prototype.slice,
-      _splice   = Array.prototype.splice;
+      _splice   = Array.prototype.splice,
+      _config   = {
+        "classRECaching" : true,
+        "beAwesome"      : true
+      },
+      _cache    = {
+        "elementData": {}
+      },
+      _externalName = 'crux',
+      _guidCounter =  0,
+      _hasOwnProperty = Object.prototype.hasOwnProperty,
+      _toString       = Object.prototype.toString;
+      
+  
 
 
   /***************************************************************/
@@ -125,86 +133,49 @@
       _unshift  = Array.prototype.unshift,
       _indexOf  = Array.prototype.indexOf,
       _lastIndexOf = Array.prototype.lastIndexOf;
-      
-      
-  var _supports = {
-    "classRECaching"   : true,
+
+
+  //-------------------------------------------------------------------------------
+  // detect a bunch of browser inconsistencies, for later use in the library core
+  //-------------------------------------------------------------------------------
+  var _detected = {
     "stringIndexes"    : "d"[0] == "d", //test if the browser supports accessing characters of a string using this notation: str[3]
-    "slicingNodeLists" : (function(){
-      try{
-        //test if Array.prototype.slice can be used on nodelists 
-        //(IE<9 craps out when you try "slice()"ing a DOMNodeList)
-        _slice.call(document.getElementsByTagName('head'), 0);
-        return true;
-      }
-      //if an error occurs trying to use the faster approach
+    //test if Array.prototype.slice can be used on DOMNodeLists 
+    //(IE<9 craps out when you try "slice()"ing a nodelist)
+    "slicingNodeLists" : !!(function(){
+      try{ return _slice.call(document.documentElement.children, 0); }
       catch(e){}
     })(),
+    //detect the 
     "CSSClassAttribute": (function(){
       //create an element to test which attribute contains the actual CSS class string
-      var el = document.createElement('div');
-      el.innerHTML = '<p class="crux"></p>';
-      var attr = el.children[0].getAttribute('className') == 'crux' ? 'className' : 'class';
+      var el = _ce('div');
+      el.innerHTML = '<p class="X"></p>';
+      var attr = el.children[0].getAttribute('className') == 'X' ? 'className' : 'class';
       el = undefined; //release the reference to the created div
       return attr;
     })(),
+    "floatProperty": (function(){
+      //create an element to test which attribute contains the actual CSS class string
+      var el = _ce('div');
+      el.innerHTML = '<p style="float: left;"></p>';
+      var attr = el.children[0].style['cssFloat'] == 'left' ? 'cssFloat' : 'styleFloat';
+      el = undefined; //release the reference to the created div
+      return attr;
+    })(),
+    
     "customEventsModule": (function(){
       try{ document.createEvent('CustomEvent'); return 'CustomEvent'; }
       catch(e){ return 'HTMLEvents'; }
     })()
-    
   };
-
   
-  //export crux object to the global namespace but keep an internal reference as well
+  
+  //internal reference to the library core object is "_"
   var _ = {
-    "version": version,
-    "supports"  : _supports,
-    
-    //*****************************************************************************************************
-    //*****************************************************************************************************
-    "str":{
-      "isUpper": function isUpper(str){ return _every.call(str, function(ch){ return (ch.toUpperCase() == ch && ch.toLowerCase() != ch); }); },
-      "isLower": function isLower(str){ return _every.call(str, function(ch){ return (ch.toLowerCase() == ch && ch.toUpperCase() != ch); }); },
-      "right"  : function right(str, length){ return (str + '').substr(str.length - Math.min(length, str.length)); },
-      "left"   : function left(str, length){ return (str + '').substr(0, length); },
-      "repeat" : function repeat(str, times){
-        var s = '';
-        times = Math.max(times || 0, 0);
-        while(times){
-          //http://stackoverflow.com/questions/202605/repeat-string-javascript
-          //http://stackoverflow.com/users/345520/artistoex
-          //bitwise AND operator
-          if(times & 1){ s += str; }
-          times >>= 1; //bitwise shift and assignment operator equivalent to: times = times >> 1;
-          str += str;
-        }
-        return s;
-      },
-      
-      "pad"    : function pad(str, length, padWith, onRight){
-      	length = Math.max(length, 0);
-      	if(length == 0){ return ''; }
-        padWith = padWith || '0';
-        str = onRight ? _.str.right(str, length) : _.str.left(str, length);
-        // work on this calculation to only take enough repeats to cover the length
-        var s = _.str.repeat(padWith, Math.max(Math.ceil(length/padWith.length) - str.length, 0));
-        return onRight ? str + _.str.right(s, length-str.length) : _.str.left(s, length-str.length) + str;
-      },
-      
-      "trim": _trim ? function(str){ return _trim.call(str); } : function(str){
-        str += '';
-      	//http://blog.stevenlevithan.com/archives/faster-trim-javascript, trim12
-        str = str.replace(/^\s\s*/, '');
-        var ws = /\s/, i = str.length;
-        while(ws.test(str.charAt(--i))){} //there is nothing within the braces. this is not a typo
-        return str.slice(0, i + 1);
-      },
-      
-
-      "parseUri": parseUri
-      
-    },
+    "version"  : _version,
+    "config"   : _config,
+    "detected" : _detected,
     
     //***************************************************************
     //data type tests
@@ -212,7 +183,6 @@
     "isString"  : function isString(v){   return _toString.call(v) == '[object String]';   },
     "isFunction": function isFunction(v){ return _toString.call(v) == '[object Function]'; },
     "isDate"    : function isDate(v){     return _toString.call(v) == '[object Date]';     },
-    
     //***************************************************************
     //isElement
     "isElement" : function isElement(v, allowDocument){
@@ -220,7 +190,6 @@
       //1 = ELEMENT_NODE, 9 = DOCUMENT_NODE
       return !!(v && (t = v.nodeType) && (t == 1 || (allowDocument && t == 9)));
     },
-  
     //***************************************************************
     //isObject
     //tests for plain objects {} which are not strings or arrays or DOMElements or functions (and not null) 
@@ -232,25 +201,23 @@
     //will hold references to the internal contructor functions or "classes" like DOMSelection
     "classes": {},
     
-    "subclass": function(parentClass, objAugmentWith, arParentArgs){
-      function subClass(){
+    "subclass": function subclass(parentConstructor, objAugmentWith, arParentArgs){
+      var subClass = function(){
         //execute the default constructor in the context of our new object
-        parentClass.call(this);
+        parentConstructor.call(this);
         //if the subClass has or inherited an init method, execute it with
         //any arguments passed to this consructor
-        if(this.init){
-          this.init.apply(this, arguments)
-        }
-      }
+        this.init && this.init.apply(this, arguments)
+      };
       //subClass.prototype = new parentClass();
-      subClass.prototype = _.newApply(parentClass, arParentArgs)
+      subClass.prototype = _.newApply(parentConstructor, arParentArgs)
       this.augment(subClass, objAugmentWith);
       subClass.prototype.constructor = subClass;
-      subClass.prototype.parentConstructor = parentClass;
+      subClass.prototype.parentConstructor = parentConstructor;
       return subClass;
     },
     
-    "newApply": function(fnConstructor, arArguments){
+    "newApply": function newApply(fnConstructor, arArguments){
       var s='';
       for(var i=0,l=(arArguments ? arArguments.length : 0); i<l; i++){ s += (i==0 ? '' : ',') + 'a[' + i + ']'; }
       return new (new Function("f", "a", 'return new f(' + s + ');'))(fnConstructor, arArguments);
@@ -271,6 +238,10 @@
       _.extend(fn.prototype, obj);
       return fn;
     },
+    
+    /**************************************************/
+    //guid: generate a part time / part counter based global unique identifier string
+    "guid": function guid(){ return Number((_guidCounter++) + '' + (new Date()).getTime()).toString(36); },
     
     /***************************************************************/
     //lastValue
@@ -311,13 +282,9 @@
     //});
     //will output only "obj2sProperty is: greg" and NOT "inheritedProperty is: true"
     "forOwnIn": function forOwnIn(obj, fn){
-      if(!obj || !fn || !_hasOwnProperty){
-        return false;
-      }
+      if(!obj || !fn || !_hasOwnProperty){ return false; }
       for(var key in obj){
-        if(_hasOwnProperty.call(obj, key) && fn(key, obj[key], obj) === false){
-          return false;
-        }
+        if(_hasOwnProperty.call(obj, key) && fn(key, obj[key], obj) === false){ return false; }
       }
       return true;
     },
@@ -330,7 +297,7 @@
     //***************************************************************
     //merge
     //
-    "merge": function(){
+    "merge": function merge(obj1, obj2){
       //improve performance by applying the Array.prototype.concat method 
       var obj = arguments[0];
       for(var j=1, jl=arguments.length; j<jl; j++){
@@ -349,7 +316,7 @@
     //toArray 
     //takes an object with 'length' property and returns an actual array
     //(useful for 'arguments' and objects returned from getElementsByTagName(), etc..)
-    "toArray" : _supports.slicingNodeLists ?
+    "toArray" : _detected.slicingNodeLists ?
       //this approach won't work on DOM nodelists under ie6 (throws a "Jscript object expected" error) 
       function toArray(obj1, obj2, obj3){
         //iterate over the function's arguments
@@ -435,6 +402,7 @@
     
     "require": function require(moduleNamespace, modulePath, fn){
       //TODO: add functionality to check passed namespaces
+      //need to have events system in place first.
       if(1==1){
         fn();
         return true;
@@ -443,49 +411,142 @@
     },
     
     
-    "g": "b"
+    //*****************************************************************************************************
+    // String manupulation module
+    //*****************************************************************************************************
+    "str":{
+      "isUpper": function isUpper(str){ return _every.call(str, function(ch){ return (ch.toUpperCase() == ch && ch.toLowerCase() != ch); }); },
+      "isLower": function isLower(str){ return _every.call(str, function(ch){ return (ch.toLowerCase() == ch && ch.toUpperCase() != ch); }); },
+      "right"  : function right(str, length){ return (str + '').substr(str.length - Math.min(length, str.length)); },
+      "left"   : function left(str, length){ return (str + '').substr(0, length); },
+      "repeat" : function repeat(str, times){
+        var s = '';
+        times = Math.max(times || 0, 0);
+        while(times){
+          //http://stackoverflow.com/questions/202605/repeat-string-javascript
+          //http://stackoverflow.com/users/345520/artistoex
+          //bitwise AND operator
+          if(times & 1){ s += str; }
+          times >>= 1; //bitwise shift and assignment operator equivalent to: times = times >> 1;
+          str += str;
+        }
+        return s;
+      },
+      
+      "pad"    : function pad(str, length, padWith, onRight){
+        length = Math.max(length, 0);
+        if(length == 0){ return ''; }
+        padWith = padWith || '0';
+        str = onRight ? _.str.right(str, length) : _.str.left(str, length);
+        // work on this calculation to only take enough repeats to cover the length
+        var s = _.str.repeat(padWith, Math.max(Math.ceil(length/padWith.length) - str.length, 0));
+        return onRight ? str + _.str.right(s, length-str.length) : _.str.left(s, length-str.length) + str;
+      },
+      
+      "trim": _trim ? function(str){ return _trim.call(str); } : function(str){
+        str += '';
+        //http://blog.stevenlevithan.com/archives/faster-trim-javascript, trim12
+        str = str.replace(/^\s\s*/, '');
+        var ws = /\s/, i = str.length;
+        while(ws.test(str.charAt(--i))){} //there is nothing within the braces. this is not a typo
+        return str.slice(0, i + 1);
+      },
+      
+      /***************************************************************/
+      //isValidString
+      //returns true if the supplied string matches the corresponding regular expression for the supplied format type
+      "valid": function valid(str, formatType){
+        var reOrFn = _.str.formats[formatType];
+        if(_.isFunction(reOrFn)){ return reOrFn(str); }
+        if(reOrFn instanceof RegExp){ return reOrFn.test(str); }
+        throw 'Invalid format type provided: "' + formatType + '". Inspect crux.str.formats for valid format types.';
+      },
+      
+      "formats": {
+        "email"         : /^[A-Za-z0-9_\-\.]+@(([A-Za-z0-9\-])+\.)+([A-Za-z\-])+$/,
+        //TODO: Add partial string validation regexs for all formats
+        //      (stop user from entering invalid chars for the validation type)
+        "email_partial" : /^[A-Za-z0-9_\-\.@]+$/,
+        "phone"         : /^(\(?[0-9]{3}\)?)? ?\-?[0-9]{3}\-?[0-9]{4}$/,
+        "number_dec"    : /^-?\d+(\.\d+)?$/,
+        "number_int"    : /^-?\d+$/,
+        "postalcode_ca" : /^[abceghjklmnprstvxy][0-9][abceghjklmnprstvwxyz]\s?[0-9][abceghjklmnprstvwxyz][0-9]$/i,
+        "postalcode_us" : /^([0-9]{5})(?:[-\s]*([0-9]{4}))?$/,
+        "postalcode_uk" : /^([a-zA-Z]){1}([0-9][0-9]|[0-9]|[a-zA-Z][0-9][a-zA-Z]|[a-zA-Z][0-9][0-9]|[a-zA-Z][0-9]){1}([ ])([0-9][a-zA-z][a-zA-z]){1}$/,
+        "filename"      : /[^0-9a-zA-Z\._\(\)\+\-\!@#\$%\^&,`~\[\]{} ']/
+      },
+
+      "parseUri": (function(){
+        // parseUri 1.2.2
+        // (c) Steven Levithan <stevenlevithan.com>
+        // MIT License
+        function parseUri(str, doc){
+         var relativeTo = (doc && doc.location) ? parseUri(doc.location.href) : (_.isString(doc) ? parseUri(doc) : null);
+             o   = parseUri.options,
+             m   = o.parser[(relativeTo || o.strictMode) ? "strict" : "loose"].exec(str),
+             uri = {},
+             i   = 14;
+        
+          while(i--){ uri[o.key[i]] = m[i] || ""; }
+        
+          uri[o.q.name] = {};
+          uri[o.key[12]].replace(o.q.parser, function ($0, $1, $2) {
+            if($1) uri[o.q.name][$1] = $2;
+          });
+          
+          if(relativeTo){
+            ["protocol","authority","userInfo","user","password","host","port"].forEach(function(s){ uri[s] = uri[s] || relativeTo[s]; });
+            ["relative","path","directory"].forEach(function(s){ uri[s] = (uri[s].charAt(0) == '/') ? uri[s] : relativeTo["directory"] + uri[s]; });
+          }
+        
+          return uri;
+        }
+        parseUri.options = {
+          strictMode: false,
+          key: ["source","protocol","authority","userInfo","user","password","host","port","relative","path","directory","file","query","anchor"],
+          q:   {
+            name:   "queryKey",
+            parser: /(?:^|&)([^&=]*)=?([^&]*)/g
+          },
+          parser: {
+            strict: /^(?:([^:\/?#]+):)?(?:\/\/((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?))?((((?:[^?#\/]*\/)*)([^?#]*))(?:\?([^#]*))?(?:#(.*))?)/,
+            loose:  /^(?:(?![^:@]+:[^:@\/]*@)([^:\/?#.]+):)?(?:\/\/)?((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?)(((\/(?:[^?#](?![^?#\/]*\.[^?#\/.]+(?:[?#]|$)))*\/?)?([^?#\/]*))(?:\?([^#]*))?(?:#(.*))?)/
+          }
+        };
+        
+        return parseUri;
+      })(),
+      
+      "cleanWordMarkup": function cleanWordMarkup(str){
+        // Remove unnecessary tag spans (comments and title)
+        str = str.replace(/\<\!--(\w|\W)+?--\>/gim, '');
+        str = str.replace(/\<title\>(\w|\W)+?\<\/title\>/gim, '');
+        // Remove all classes and styles
+        str = str.replace(/\s?class=\w+/gim, '');
+        str = str.replace(/\s+style=\'[^\']+\'/gim, '');
+        str = str.replace( /<(\w[^>]*) style="([^\"]*)"([^>]*)/gi, "<$1$3" ) ;
+        // Remove unnecessary tags
+        str = str.replace(/<(meta|link|\/?o:|\/?style|\/?font|\/?img|\/?h|\/?a|\/?script|\/?div|\/?st\d|\/?head|\/?html|body|\/?body|\/?span|!\[)[^>]*?>/gim, '');
+        // Remove underline tags
+        str = str.replace(/<\/?u>/gim,'');    
+        // Get rid of empty paragraph tags
+        str = str.replace(/(<[^>]+>)+&nbsp;(<\/\w+>)/gim, '');
+        // Remove bizarre v: element attached to <img> tag
+        str = str.replace(/\s+v:\w+=""[^""]+""/gim, '');
+        // Remove extra lines
+        str = str.replace(/"(\n\r){2,}/gim, '');
+        // Fix entites
+        str = str.replace("&ldquo;", "\"");
+        str = str.replace("&rdquo;", "\"");
+        str = str.replace("&mdash;", "â€“");
+        return str;
+      }
+      
+    }
   };
   
   
-  // parseUri 1.2.2
-  // (c) Steven Levithan <stevenlevithan.com>
-  // MIT License
-  function parseUri(str, doc){
-   var relativeTo = (doc && doc.location) ? parseUri(doc.location.href) : (_.isString(doc) ? parseUri(doc) : null);
-       o   = parseUri.options,
-       m   = o.parser[(relativeTo || o.strictMode) ? "strict" : "loose"].exec(str),
-       uri = {},
-       i   = 14;
-  
-    while(i--){ uri[o.key[i]] = m[i] || ""; }
-  
-    uri[o.q.name] = {};
-    uri[o.key[12]].replace(o.q.parser, function ($0, $1, $2) {
-      if($1) uri[o.q.name][$1] = $2;
-    });
     
-    if(relativeTo){
-      ["protocol","authority","userInfo","user","password","host","port"].forEach(function(s){ uri[s] = uri[s] || relativeTo[s]; });
-      ["relative","path","directory"].forEach(function(s){ uri[s] = (uri[s].charAt(0) == '/') ? uri[s] : relativeTo["directory"] + uri[s]; });
-    }
-  
-    return uri;
-  }
-  parseUri.options = {
-    strictMode: false,
-    key: ["source","protocol","authority","userInfo","user","password","host","port","relative","path","directory","file","query","anchor"],
-    q:   {
-      name:   "queryKey",
-      parser: /(?:^|&)([^&=]*)=?([^&]*)/g
-    },
-    parser: {
-      strict: /^(?:([^:\/?#]+):)?(?:\/\/((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?))?((((?:[^?#\/]*\/)*)([^?#]*))(?:\?([^#]*))?(?:#(.*))?)/,
-      loose:  /^(?:(?![^:@]+:[^:@\/]*@)([^:\/?#.]+):)?(?:\/\/)?((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?)(((\/(?:[^?#](?![^?#\/]*\.[^?#\/.]+(?:[?#]|$)))*\/?)?([^?#\/]*))(?:\?([^#]*))?(?:#(.*))?)/
-    }
-  };
-  
-  window['crux'] = _;
-  
   _.extend(_.dom, {
     //we can't assign this until Sizzle is instanciated at the end of this file 
     "selectorEngine": null,
@@ -557,13 +618,13 @@
     },
     
     //***************************************************************
-    "getClass": function getClass(el){ return (el && el.getAttribute && el.getAttribute(_supports.CSSClassAttribute)) || ''; },
+    "getClass": function getClass(el){ return (el && el.getAttribute && el.getAttribute(_detected.CSSClassAttribute)) || ''; },
     "setClass": function setClass(el, str){
       if(!el || !el.setAttribute){
         return false;
       }
       if(_.dom.getClass(el) !== str){
-        el.setAttribute(_supports.CSSClassAttribute, str);
+        el.setAttribute(_detected.CSSClassAttribute, str);
       }
       return str;
     },
@@ -575,7 +636,7 @@
     "addClass": function addClass(elementOrArray, strClassToAdd){
       //if an array of elements was passed in, just set ar equal to it, otherwise, make an array with a single element
       var ar = _.isElement(elementOrArray) ? [elementOrArray] : elementOrArray,
-          c = _supports.classRECaching ? arguments.callee.cache || (arguments.callee.cache = {}) : {},
+          c = _config.classRECaching ? arguments.callee.cache || (arguments.callee.cache = {}) : {},
           l = ar.length,
           i, el, strClassName, re;
           
@@ -616,7 +677,7 @@
     "removeClass": function removeClass(elementOrArray, classToRemove){
       //if an array of elements was passed in, just set ar equal to it, otherwise, make an array with a single element
       var ar = _.isElement(elementOrArray) ? [elementOrArray] : elementOrArray,
-          cache = _supports.classRECaching ? arguments.callee.cache || (arguments.callee.cache = {}) : {},
+          cache = _config.classRECaching ? arguments.callee.cache || (arguments.callee.cache = {}) : {},
           l = ar.length,
           i, el, strClass, re;
       //be sure that the original string doesn't have any leading or trailing whitespace
@@ -657,7 +718,7 @@
     "hasClass": function hasClass(elementOrArray, strClassToCheckFor){
       //if an array of elements was passed in, just set ar equal to it, otherwise, make an array with a single element
       var ar = _.isElement(elementOrArray) ? [elementOrArray] : elementOrArray,
-          cache = _supports.classRECaching ? arguments.callee.cache || (arguments.callee.cache = {}) : {},
+          cache = _config.classRECaching ? arguments.callee.cache || (arguments.callee.cache = {}) : {},
           l = ar.length,
           arReturn = [],
           i, el, strClass, re;
@@ -693,7 +754,7 @@
     //make
     //Creates an element and assigns attributes css classes and 
     "make": function make(tagName, objAttributes, objEvents, elAppendTo){
-      var el = _.isElement(tagName) ? tagName : document.createElement(tagName);
+      var el = _.isElement(tagName) ? tagName : _ce(tagName);
       /*
       if(!elAppendTo){
         setData(el, '_ddpDetached', true); //serious thought should be put into whether this line should be left in...
@@ -734,7 +795,7 @@
   /*-----------------------------------------------*/
   _.classes.Collection = function(){
     this.length = 0;
-    this.push.apply(this, arguments);
+    _push.apply(this, arguments);
   };
   _.classes.Collection.prototype = {
     "constructor": _.classes.Collection,
@@ -753,14 +814,10 @@
     "augment"    : function augment(obj){  _.augment(this.constructor, obj); return this;       },
     "add"        : function add(){         _push.apply(this, arguments);     return this;       },
     "filter"     : function filter(fn){    return new this.constructor(_filter.call(this, fn)); },
+    "subclass"   : function(obj){          return _.subclass(this.constructor, obj);            },
     "merge"      : function merge(){       return _.merge.apply(this, _.toArray([this], arguments));    },
     "DOMElements": function DOMElements(){ return this.filter(function(v){ return _.isElement(v); });   },
-    
-    "index": function(ind){
-      //extra check to make sure the index is below the length property
-      return new this.constructor((ind < this.length ? this[ind] : null), this.selectionContext);
-    },
-    
+    "index": function index(ind){ return new this.constructor((ind < this.length ? this[ind] : null), this.selectionContext); },
     "setLength": function setLength(newLength){
       var i = this.length;
       newLength -= 1;
@@ -851,7 +908,8 @@
       "addClass"      : function addClass(str){    return _.dom.addClass(this, str);    },
       "removeClass"   : function removeClass(str){ return _.dom.removeClass(this, str); },
       "show"          : function show(){ this.DOMElements().forEach(function(el){ el.style.display = ''; return this;});     },
-      "hide"          : function hide(){ this.DOMElements().forEach(function(el){ el.style.display = 'none'; return this;}); },      
+      "hide"          : function hide(){ this.DOMElements().forEach(function(el){ el.style.display = 'none'; return this;}); },
+      "climb"         : function climb(fn){ return this.DOMElements().every(function(el){ return _.dom.climb(el, fn); }); },      
       //***************************************************************
       //childrenOf 
       //returns a new DOMCollection of elements that are DOM descendents of the supplied parent element
@@ -860,12 +918,9 @@
         //return elements.length ? elements.every(function(el){ return _.dom.childOf(el, parent, jumpIframes); }) : false;
       },
       
-      "climb": function climb(fn){
-        return this.DOMElements().every(function(el){ return _.dom.climb(el, fn); });
-      },
       
       "debug": function(str){
-        try{ console.log((new Date).getTime() + ': ' + str); }
+        try{ console.log((new Date).getTime() + ': ' + (str || '')); }
         catch(e){}
         this.forEach(function(el){ try{console.log(el);} catch(e){} });
         return this;
@@ -875,8 +930,8 @@
   
 
 
-
-
+//export to the externalName
+window[_externalName] = _;
 
 
 
@@ -1001,5 +1056,5 @@ _.dom.selectorEngine_matches = Sizzle.matches;
 })(
     //try to get a reference to the global object, regardless of the scope the code is executed in
     //kangax - http://perfectionkills.com/
-    (function(){ return this || (1,eval)('this') })()
+    (function(){ return this || (1,eval)('this'); })()
   );
