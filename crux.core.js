@@ -8,352 +8,384 @@
 
 (function(window){ //create a private scope
 
-  var undefined,
-      _version  = 0.01,
-      document  = window.document,
-      _ce       = function(t,x){ return document.createElement(t,x); },
-      _trim     = String.prototype.trim,
-      _push     = Array.prototype.push,
-      _concat   = Array.prototype.concat,
-      _slice    = Array.prototype.slice,
-      _splice   = Array.prototype.splice,
-      _config   = {
-        "classRECaching" : true,
-        "beAwesome"      : true
-      },
-      _cache    = {
-        "elementData": {}
-      },
-      _externalName = 'crux',
-      _guidCounter =  0,
-      _hasOwnProperty = Object.prototype.hasOwnProperty,
-      _toString       = Object.prototype.toString;
-      
-  
 
-
-  /***************************************************************/
-  //if they don't exist, add the "forEach", "every" and "filter" methods to all Arrays using prototype
-  //(these methods were added in Javascript 1.6, so IE7  and lower doesn't support them)
-  if(!Array.prototype.forEach){
-    Array.prototype.forEach = function(fn, thisObj){
-      var scope = thisObj || window;
-      for(var i=0, j=this.length; i < j; ++i){
-        (i in this) && fn.call(scope, this[i], i, this);
-      }
-    };
-  }
-  if(!Array.prototype.every){
-    Array.prototype.every = function(fn, thisObj){
-      var scope = thisObj || window;
-      for( var i=0, j=this.length; i < j; ++i ){
-        if(i in this && !fn.call(scope, this[i], i, this)){
-          return false;
-        }
-      }
-      return true;
-    };
-  }
-  if(!Array.prototype.filter){
-    Array.prototype.filter = function(fn, thisObj){
-      var scope = thisObj || window;
-      var a = [];
-      for(var i=0, j=this.length; i < j; ++i){
-        if(i in this){
-          if(fn.call(scope, this[i], i, this)){
-            a.push(this[i]);
-          }
-        }
-      }
-      return a;
-    };
-  }
-  if(!Array.prototype.map){
-    Array.prototype.map = function(fn, thisObj){
-      var scope = thisObj || window;
-      var a = [];
-      for(var i=0, j=this.length; i < j; ++i){
-        if(i in this){
-          a.push(fn.call(scope, this[i], i, this));
-        }
-      }
-      return a;
-    };
-  }
-  if(!Array.prototype.some){
-    Array.prototype.some = function(fn, thisObj){
-      var scope = thisObj || window;
-      for(var i=0, l = this.length; i<l; i++){
-        if(i in this && fn.call(scope, this[i], i, this))
-          return true;
-      }
-      return false;
-    };
-  }
-  //new in the es5 spec
-  if(!Array.prototype.indexOf){
-    Array.prototype.indexOf = function(searchElement , fromIndex){
-      if(fromIndex && fromIndex < 0){
-        fromIndex = Math.max(0, this.length + fromIndex);
-      }
-      for(var i = fromIndex || 0, l=this.length; i<l; i++){
-        if(this[i] === searchElement){
-          return i;
-        }
-      }
-      return -1;
-    }
-  }
-  //new in the es5 spec
-  if(!Array.prototype.lastIndexOf){ 
-    Array.prototype.lastIndexOf = function(searchElement, fromIndex){
-      var i = this.length;
-      if(fromIndex || fromIndex === 0){
-        i = ((fromIndex < 0) ? Math.max(0, this.length + fromIndex) : Math.min(fromIndex, this.length - 1)) + 1;
-      }
-      while(i--){
-        if(i in this && this[i] === searchElement){
-          return i;
-        }
-      }
-      return -1;
-    }
-  }
-  //new-ish
-  if(!Array.prototype.unshift){ 
-    Array.prototype.unshift = function(){
-      Array.prototype.splice.apply(this, _.toArray([0,0], arguments));
-      return this.length;
-    }
-  }
-
-  var _every    = Array.prototype.every,
-      _forEach  = Array.prototype.forEach,
-      _filter   = Array.prototype.filter,
-      _unshift  = Array.prototype.unshift,
-      _indexOf  = Array.prototype.indexOf,
-      _lastIndexOf = Array.prototype.lastIndexOf;
-
-
-  //-------------------------------------------------------------------------------
-  // detect a bunch of browser inconsistencies, for later use in the library core
-  //-------------------------------------------------------------------------------
-  var _detected = {
-    "stringIndexes"    : "d"[0] == "d", //test if the browser supports accessing characters of a string using this notation: str[3]
-    //test if Array.prototype.slice can be used on DOMNodeLists 
-    //(IE<9 craps out when you try "slice()"ing a nodelist)
-    "slicingNodeLists" : !!(function(){
-      try{ return _slice.call(document.documentElement.children, 0); }
-      catch(e){}
-    })(),
-    //detect the 
-    "CSSClassAttribute": (function(){
-      //create an element to test which attribute contains the actual CSS class string
-      var el = _ce('div');
-      el.innerHTML = '<p class="X"></p>';
-      var attr = el.children[0].getAttribute('className') == 'X' ? 'className' : 'class';
-      el = undefined; //release the reference to the created div
-      return attr;
-    })(),
-    "floatProperty": (function(){
-      //create an element to test which attribute contains the actual CSS class string
-      var el = _ce('div');
-      el.innerHTML = '<p style="float: left;"></p>';
-      var attr = el.children[0].style['cssFloat'] == 'left' ? 'cssFloat' : 'styleFloat';
-      el = undefined; //release the reference to the created div
-      return attr;
-    })(),
+var undefined,
+    _version  = 0.01,
+    document  = window.document,
+    _ce       = function(t){ return document.createElement(t); },
+    _trim     = String.prototype.trim,
+    _push     = Array.prototype.push,
+    _concat   = Array.prototype.concat,
+    _slice    = Array.prototype.slice,
+    _splice   = Array.prototype.splice,
+    _config   = {
+      "classRECaching" : true
+    },
+    _cache    = {
+      "elementData": {}
+    },
+    _externalName = 'crux',
+    _guidCounter =  0,
+    _hasOwnProperty = Object.prototype.hasOwnProperty,
+    _toString       = Object.prototype.toString,
     
-    "customEventsModule": (function(){
-      try{ document.createEvent('CustomEvent'); return 'CustomEvent'; }
-      catch(e){ return 'HTMLEvents'; }
-    })()
+    MAX_CLONE_DEPTH = 10;
+    
+
+
+
+/***************************************************************/
+//if they don't exist, add the "forEach", "every" and "filter" methods to all Arrays using prototype
+//(these methods were added in Javascript 1.6, so IE7  and lower doesn't support them)
+if(!Array.prototype.forEach){
+  Array.prototype.forEach = function(fn, thisObj){
+    var scope = thisObj || window;
+    for(var i=0, j=this.length; i < j; ++i){
+      (i in this) && fn.call(scope, this[i], i, this);
+    }
   };
+}
+if(!Array.prototype.every){
+  Array.prototype.every = function(fn, thisObj){
+    var scope = thisObj || window;
+    for( var i=0, j=this.length; i < j; ++i ){
+      if(i in this && !fn.call(scope, this[i], i, this)){
+        return false;
+      }
+    }
+    return true;
+  };
+}
+if(!Array.prototype.filter){
+  Array.prototype.filter = function(fn, thisObj){
+    var scope = thisObj || window;
+    var a = [];
+    for(var i=0, j=this.length; i < j; ++i){
+      if(i in this){
+        if(fn.call(scope, this[i], i, this)){
+          a.push(this[i]);
+        }
+      }
+    }
+    return a;
+  };
+}
+if(!Array.prototype.map){
+  Array.prototype.map = function(fn, thisObj){
+    var scope = thisObj || window;
+    var a = [];
+    for(var i=0, j=this.length; i < j; ++i){
+      if(i in this){
+        a.push(fn.call(scope, this[i], i, this));
+      }
+    }
+    return a;
+  };
+}
+if(!Array.prototype.some){
+  Array.prototype.some = function(fn, thisObj){
+    var scope = thisObj || window;
+    for(var i=0, l = this.length; i<l; i++){
+      if(i in this && fn.call(scope, this[i], i, this))
+        return true;
+    }
+    return false;
+  };
+}
+//new in the es5 spec
+if(!Array.prototype.indexOf){
+  Array.prototype.indexOf = function(searchElement , fromIndex){
+    if(fromIndex && fromIndex < 0){
+      fromIndex = Math.max(0, this.length + fromIndex);
+    }
+    for(var i = fromIndex || 0, l=this.length; i<l; i++){
+      if(this[i] === searchElement){
+        return i;
+      }
+    }
+    return -1;
+  }
+}
+//new in the es5 spec
+if(!Array.prototype.lastIndexOf){ 
+  Array.prototype.lastIndexOf = function(searchElement, fromIndex){
+    var i = this.length;
+    if(fromIndex || fromIndex === 0){
+      i = ((fromIndex < 0) ? Math.max(0, this.length + fromIndex) : Math.min(fromIndex, this.length - 1)) + 1;
+    }
+    while(i--){
+      if(i in this && this[i] === searchElement){
+        return i;
+      }
+    }
+    return -1;
+  }
+}
+//new-ish
+if(!Array.prototype.unshift){ 
+  Array.prototype.unshift = function(){
+    Array.prototype.splice.apply(this, _.toArray([0,0], arguments));
+    return this.length;
+  }
+}
+
+var _every    = Array.prototype.every,
+    _forEach  = Array.prototype.forEach,
+    _filter   = Array.prototype.filter,
+    _indexOf  = Array.prototype.indexOf,
+    //TODO: so far unused, remove if we don't end up using them in the core module
+    _unshift  = Array.prototype.unshift,
+    _lastIndexOf = Array.prototype.lastIndexOf;
+
+
+//-------------------------------------------------------------------------------
+// detect a bunch of browser inconsistencies, for later use in the library core
+//-------------------------------------------------------------------------------
+var _detected = {
+  "stringIndexes"    : "d"[0] == "d", //test if the browser supports accessing characters of a string using this notation: str[3]
+  //test if Array.prototype.slice can be used on DOMNodeLists 
+  //(IE<9 craps out when you try "slice()"ing a nodelist)
+  "sliceNodeLists" : !!(function(){
+    try{ return _slice.call(document.documentElement.children, 0); }
+    catch(e){}
+  })(),
+  //detect the 
+  "CSSClassAttribute": (function(){
+    //create an element to test which attribute contains the actual CSS class string
+    var el = _ce('div');
+    el.innerHTML = '<p class="X"></p>';
+    return el.children[0].getAttribute('className') == 'X' ? 'className' : 'class';
+  })(),
+  
+  //create an element to test if the styleFloat property is not undefined
+  "floatProperty": (function(){ return (_ce('div').style.styleFloat !== undefined) ? 'styleFloat' : 'cssFloat'; })(),
+  
+  "customEventsModule": (function(){
+    try{ document.createEvent('CustomEvent'); return 'CustomEvent'; }
+    catch(e){ return 'HTMLEvents'; }
+  })()
+};
+
+
+//internal reference to the library core object is "_"
+var _ = window[_externalName] = {
+  version  : _version,
+  config   : _config,
+  detected : _detected,
+  
+  //***************************************************************
+  //data type tests
+  isArray    : function isArray(v){    return _toString.call(v) == '[object Array]';    },
+  isString   : function isString(v){   return _toString.call(v) == '[object String]';   },
+  isFunction : function isFunction(v){ return _toString.call(v) == '[object Function]'; },
+  isDate     : function isDate(v){     return _toString.call(v) == '[object Date]';     },
+  //***************************************************************
+  //isElement
+  isElement  : function isElement(v, allowDocument){
+    var t;
+    //1 = ELEMENT_NODE, 9 = DOCUMENT_NODE
+    return !!(v && (t = v.nodeType) && (t == 1 || (allowDocument && t == 9)));
+  },
+  //***************************************************************
+  //isObject
+  //tests for plain objects {} which are not strings or arrays or DOMElements or functions (and not null) 
+  isObject  : function isObject(v){
+    //it's not null, has typeof "object", isn't a string, isn't an array, and isn't a function
+    return (v !== null && typeof v == 'object' && !_.isString(v) && !_.isArray(v) && !_.isFunction(v) && !_.isDate(v) && !_.isElement(v));
+  },
+  
+  newApply: function newApply(fnConstructor, arArguments, strName){
+    var s='';
+    strName = strName || 'f';
+    for(var i=0,l=(arArguments ? arArguments.length : 0); i<l; i++){ s += (i==0 ? '' : ',') + 'a[' + i + ']'; }
+    return new (new Function(strName, "a", 'return new ' + strName + '(' + s + ');'))(fnConstructor, arArguments);
+  },
+  
+  //--------------------------------------------------
+  //extend
+  //copies properties from multiple objects into one object
+  //
+  extend: function extend(obj, obj1, obj2){
+    var key, source;
+    obj = obj || {};
+    for(var i=1, l=arguments.length; i<l; i++){
+      source = arguments[i];
+      for(key in source){
+        if(_hasOwnProperty.call(source, key)){
+          obj[key] = source[key];
+        }
+      }
+    }
+    return obj;
+  },
+  
+  /**************************************************/
+  //guid: generate a part time / part counter based global unique identifier string
+  guid: function guid(){ return Number((_guidCounter++) + '' + (new Date()).getTime()).toString(36); },
+  
+  /***************************************************************/
+  //lastValue
+  //Accepts a chain of properties, runs through to check if they are all defined
+  //and then returns the value of the last property.
+  //If the chain to be checked is not globally accessible (attached to the window object),
+  //then the root object must be passed in the second argument and left out of the chain string.
+  //If any of the chained properties are undefined the function retuns undefined
+  //
+  //eg. alert(typeof lastValue("ddp.a.requestManager.scriptCallbacks"));
+  //    this will display "object" if the ddp.ajax.js file has been included, or "undefined" if it hasn't
+  //eg. if you had an object accsessible from only with your namespace
+  //    i.am.a.property = 'yep';
+  //    lastValue("am.a.property", i); //returns 'yep'
+  //    lastValue("am.potatosalad.property", i); //returns undefined (since potatosalad is undefined)
+  lastValue: function lastValue(chain, root){
+    var ar = chain.split('.'),
+        //if a second argument was passed, use it, even if the value is undefined
+        p = arguments.length == 2 ? root : window;
+    
+    for(var i=0, l=ar.length; i<l; p = p[ar[i++]]){
+      //if it's undefined or null (with type coercion, null == undefined)
+      if(p == undefined){ return; }
+    }
+    //return the last property even if it's undefined
+    return p;
+  },
+  
+  /***************************************************************/
+  //forOwnIn
+  //iterates over an object's own properties only
+  //e.g.
+  //var obj = {"inheritedProperty": true};
+  //var obj2 = newObjectFrom(obj);
+  //obj2.obj2sProperty = 'greg';
+  //ddp.f.forOwnIn(obj2, function(key, value, object){
+  //  console.log('the value of property "' + key + '" is: ' + value);
+  //});
+  //will output only "obj2sProperty is: greg" and NOT "inheritedProperty is: true"
+  forOwnIn: function forOwnIn(obj, fn){
+    if(!obj || !fn || !_hasOwnProperty){ return false; }
+    for(var key in obj){
+      if(_hasOwnProperty.call(obj, key) && fn(key, obj[key], obj) === false){ return false; }
+    }
+    return true;
+  },
   
   
-  //internal reference to the library core object is "_"
-  var _ = {
-    "version"  : _version,
-    "config"   : _config,
-    "detected" : _detected,
-    
-    //***************************************************************
-    //data type tests
-    "isArray"   : function isArray(v){    return _toString.call(v) == '[object Array]';    },
-    "isString"  : function isString(v){   return _toString.call(v) == '[object String]';   },
-    "isFunction": function isFunction(v){ return _toString.call(v) == '[object Function]'; },
-    "isDate"    : function isDate(v){     return _toString.call(v) == '[object Date]';     },
-    //***************************************************************
-    //isElement
-    "isElement" : function isElement(v, allowDocument){
-      var t;
-      //1 = ELEMENT_NODE, 9 = DOCUMENT_NODE
-      return !!(v && (t = v.nodeType) && (t == 1 || (allowDocument && t == 9)));
-    },
-    //***************************************************************
-    //isObject
-    //tests for plain objects {} which are not strings or arrays or DOMElements or functions (and not null) 
-    "isObject": function isObject(v){
-      //it's not null, has typeof "object", isn't a string, isn't an array, and isn't a function
-      return (v !== null && typeof v == 'object' && !_.isString(v) && !_.isArray(v) && !_.isFunction(v) && !_.isDate(v) && !_.isElement(v));
-    },
-    
-    //will hold references to the internal contructor functions or "classes" like DOMSelection
-    "classes": {},
-    
-    "subclass": function subclass(parentConstructor, objAugmentWith, arParentArgs){
-      var subClass = function(){
-        //execute the default constructor in the context of our new object
-        parentConstructor.call(this);
-        //if the subClass has or inherited an init method, execute it with
-        //any arguments passed to this consructor
-        this.init && this.init.apply(this, arguments)
-      };
-      //subClass.prototype = new parentClass();
-      subClass.prototype = _.newApply(parentConstructor, arParentArgs)
-      this.augment(subClass, objAugmentWith);
-      subClass.prototype.constructor = subClass;
-      subClass.prototype.parentConstructor = parentConstructor;
-      return subClass;
-    },
-    
-    "newApply": function newApply(fnConstructor, arArguments){
-      var s='';
-      for(var i=0,l=(arArguments ? arArguments.length : 0); i<l; i++){ s += (i==0 ? '' : ',') + 'a[' + i + ']'; }
-      return new (new Function("f", "a", 'return new f(' + s + ');'))(fnConstructor, arArguments);
-    },
-    
-    
-    "extend": function extend(objTo, objFrom){
-      for(var key in objFrom){
-        if(_hasOwnProperty.call(objFrom, key)){
-          objTo[key] = objFrom[key];
+  //***************************************************************
+  //dom
+  //
+  dom: function dom(selector, context){ return new _.DOMSelection(selector, context, arguments[2]); },
+  
+  //***************************************************************
+  //mergeIndexes
+  //does the same this as extend except with only numeric properties
+  mergeIndexes: function mergeIndexes(obj, obj1, obj2){
+    var unique = (arguments[arguments.length-1] === true),
+        obj = (arguments[0] == null ? [] : arguments[0]),
+        objAdd = arguments[1],
+        oia = _.isArray(obj),
+        j, jl;
+    for(j = 1, jl = arguments.length; j<jl; objAdd = arguments[++j]){
+      if(objAdd && objAdd.length){
+        if(_detected.sliceNodeLists || (oia && _.isArray(objAdd))){
+          //console.log([obj.length,0].concat(_slice.call(objAdd, 0)));
+          _splice.apply(obj, [obj.length,0].concat(_.isArray(objAdd) ? objAdd : _slice.call(objAdd, 0)));
+          unique && _.unique(obj, false, obj.length-objAdd.length);
         }
-      }
-      return objTo;
-    },
-    
-    
-    "augment": function augment(fn, obj){
-      _.extend(fn.prototype, obj);
-      return fn;
-    },
-    
-    /**************************************************/
-    //guid: generate a part time / part counter based global unique identifier string
-    "guid": function guid(){ return Number((_guidCounter++) + '' + (new Date()).getTime()).toString(36); },
-    
-    /***************************************************************/
-    //lastValue
-    //Accepts a chain of properties, runs through to check if they are all defined
-    //and then returns the value of the last property.
-    //If the chain to be checked is not globally accessible (attached to the window object),
-    //then the root object must be passed in the second argument and left out of the chain string.
-    //If any of the chained properties are undefined the function retuns undefined
-    //
-    //eg. alert(typeof lastValue("ddp.a.requestManager.scriptCallbacks"));
-    //    this will display "object" if the ddp.ajax.js file has been included, or "undefined" if it hasn't
-    //eg. if you had an object accsessible from only with your namespace
-    //    i.am.a.property = 'yep';
-    //    lastValue("am.a.property", i); //returns 'yep'
-    //    lastValue("am.potatosalad.property", i); //returns undefined (since potatosalad is undefined)
-    "lastValue": function lastValue(chain, root){
-      var ar = chain.split('.'),
-          //if a second argument was passed, use it, even if the value is undefined
-          p = arguments.length == 2 ? root : window;
-      
-      for(var i=0, l=ar.length; i<l; p = p[ar[i++]]){
-        //if it's undefined or null (with type coercion, null == undefined)
-        if(p == undefined){ return; }
-      }
-      //return the last property even if it's undefined
-      return p;
-    },
-    
-    /***************************************************************/
-    //forOwnIn
-    //iterates over an object's own properties only
-    //e.g.
-    //var obj = {"inheritedProperty": true};
-    //var obj2 = newObjectFrom(obj);
-    //obj2.obj2sProperty = 'greg';
-    //ddp.f.forOwnIn(obj2, function(key, value, object){
-    //  console.log('the value of property "' + key + '" is: ' + value);
-    //});
-    //will output only "obj2sProperty is: greg" and NOT "inheritedProperty is: true"
-    "forOwnIn": function forOwnIn(obj, fn){
-      if(!obj || !fn || !_hasOwnProperty){ return false; }
-      for(var key in obj){
-        if(_hasOwnProperty.call(obj, key) && fn(key, obj[key], obj) === false){ return false; }
-      }
-      return true;
-    },
-    
-    "dom": function dom(selector, context){
-      //return _.newApply(_.classes.DOMSelection, arguments);
-      return new _.classes.DOMSelection(selector, context, arguments[2]);
-    },
-    
-    //***************************************************************
-    //merge
-    //
-    "merge": function merge(obj1, obj2){
-      //improve performance by applying the Array.prototype.concat method 
-      var obj = arguments[0];
-      for(var j=1, jl=arguments.length; j<jl; j++){
-        var objToAdd = arguments[j];
-        if(objToAdd && objToAdd.length){
-          for(var i=0, l=objToAdd.length; i<l; i++){
-            _push.call(obj, objToAdd[i]);
-          }
-        }
-      }
-      return obj;
-    },
-    
-    
-    /***************************************************************/
-    //toArray 
-    //takes an object with 'length' property and returns an actual array
-    //(useful for 'arguments' and objects returned from getElementsByTagName(), etc..)
-    "toArray" : _detected.slicingNodeLists ?
-      //this approach won't work on DOM nodelists under ie6 (throws a "Jscript object expected" error) 
-      function toArray(obj1, obj2, obj3){
-        //iterate over the function's arguments
-        for(var ar=[], i=0, l=arguments.length, obj=arguments[0]; i<l; obj=arguments[++i]){
-          //and only process arguments that are truthy.. no empty strings, empty arrays, nulls, undefineds, etc.
-          obj && (ar = ar.concat(_.isString(obj) ? obj.split('') : _slice.call(obj, 0)));
-        }
-        return ar;
-      } :
-      //the slower fallback makeRealArray function which is assigned if the browser doesn't support the "Array.slice" approach
-      function toArray(obj1, obj2, obj3){
-        var ar = [], jl;
-        for(var i=0, il=arguments.length, obj=arguments[i]; i<il; obj=arguments[++i]){
-          //if it's a string
-          if(_.isString(obj)){
-            //use the native split method (faster)
-            ar = ar.concat(obj.split(''));
-          }
-          else if(obj){
-            jl = obj.length;
-            //edge case - the nodelist contains an element with id "length"
-            if(typeof jl == 'object' && jl.nodeType){
-              var j=0;
-              //iterate through the indexes of the object
-              while(obj[j++]){
-                //and push each one onto the array
-                ar.push(obj[j]);
-              }
+        else{
+          //TODO: add check for DOMElements (they have a length but to indexes)
+          for(var i=0, l=objAdd.length; i<l; i++){
+            if(!unique || _indexOf.call(obj, objAdd[i]) < 0){
+              _push.call(obj, objAdd[i]);
             }
+          }
+        }
+      }
+    }
+    return obj;
+  },
+  
+  
+  /***************************************************************/
+  //clone
+  //makes a "copy" of the object passed to it. (actually creates a new object and copies the old object's properties into it)
+  //optional parameter "allProperties", if set to true, copies properties inherited through it's prototype
+  //deep clone also clones the properties of the object that are objects as well (with cyclical references, this can cause an issue)
+  clone: function clone(obj, deep, inherit){
+    var cloned = new obj.constructor;
+    clone.depth = (clone.depth === undefined) ? 0 : clone.depth;
+    deep = (deep === true ? MAX_CLONE_DEPTH : Math.min(deep, MAX_CLONE_DEPTH)) || 0;
+    //iterate through the object's properties
+    for(var key in obj){
+      //check to see if the property in question belongs to the object
+      //if it doesn't, skip over this property
+      if(_hasOwnProperty.call(obj, key)){
+        //if it's not an "unknown" (ie6-8) type (happens with some native and activeX object)
+        if(typeof obj[key] !== 'unknown'){
+          if(clone.depth < deep && _.isObject(obj[key])){
+            //if(){ throw 'clone depth exceeds maximum. you can haz infinite loop?'; }
+            //copy the reference or data to the new object
+            clone.depth++;
+            cloned[key] = clone(obj[key], deep, false);
+            clone.depth--;
+          }
+          else{
+            cloned[key] = obj[key];
+          }
+        }
+        else{
+          //prolly won't work... but try anyway
+          try{ cloned[key] = obj[key]; }
+          catch(e){ console.log('tried to clone unknown data type:' + key); }
+        }
+      }
+    }
+    //return the new object
+    return cloned;
+  },
+  
+  
+  /***************************************************************/
+  //toArray 
+  //takes an object with 'length' property and returns an actual array
+  //(useful for 'arguments' and objects returned from getElementsByTagName(), etc..)
+  toArray : _detected.sliceNodeLists ?
+    //this approach won't work on DOM nodelists under ie6 (throws a "Jscript object expected" error) 
+    function toArray(obj1, obj2, obj3){
+      //iterate over the function's arguments
+      for(var ar=[], i=0, l=arguments.length, obj=arguments[0]; i<l; obj=arguments[++i]){
+        //and only process arguments that are truthy.. no empty strings, empty arrays, nulls, undefineds, etc.
+        obj && (ar = ar.concat(_.isString(obj) ? obj.split('') : _slice.call(obj, 0)));
+      }
+      return ar;
+    } :
+    //the slower fallback makeRealArray function which is assigned if the browser doesn't support the "Array.slice" approach
+    function toArray(obj1, obj2, obj3){
+      var ar = [], jl;
+      for(var i=0, il=arguments.length, obj=arguments[i]; i<il; obj=arguments[++i]){
+        //if it's a string
+        if(_.isString(obj)){
+          //use the native split method (faster)
+          ar = ar.concat(obj.split(''));
+        }
+        else if(obj){
+          jl = obj.length;
+          //edge case - the nodelist contains an element with id "length"
+          if(typeof jl == 'object' && jl.nodeType){
+            var j=0;
             //iterate through the indexes of the object
-            for(var j=0; j<jl; j++){
+            while(obj[j++]){
               //and push each one onto the array
               ar.push(obj[j]);
             }
           }
+          //iterate through the indexes of the object
+          for(var j=0; j<jl; j++){
+            //and push each one onto the array
+            ar.push(obj[j]);
+          }
         }
-        //return the array of accumulated indexes
+      }
+      //return the array of accumulated indexes
         return ar;
       }
     ,
@@ -362,576 +394,1006 @@
     
     
     /***************************************************************/
-    //unique
-    //Removes duplicate values from an array.
-    //
-    //When optional argument "copy" is truthy, a copy of the
-    //original array is returned.
-    //
-    //The splice and indexOf methods are refereced straight from
-    //the Array prototype, so technically you could pass an object with
-    //a length property instead of an array.
-    "unique": function unique(ar, copy){
-      var newAr, tmp, i = ar.length;
-      
-      //if the copy flag is truthy,
-      if(copy){
-        //create a new array so we don't affect the original
-        newAr = [];
-        //iterate through the original array backwards
-        while(i--){
-          //if the value from the original array is not in the new array
-          if(_indexOf.call(newAr, tmp = ar[i]) == -1){
-            //tack it to the beginning of the array
-            _splice.call(newAr, 0, 0, tmp);
-          }
-        }
-        return newAr;
-      }
-      //change the original array
+  //unique
+  //Removes duplicate values from an array.
+  //
+  //When optional argument "copy" is truthy, a copy of the
+  //original array is returned.
+  //
+  //The splice and indexOf methods are refereced straight from
+  //the Array prototype, so technically you could pass an object with
+  //a length property instead of an array.
+  unique: function unique(ar, copy, start){
+    var newAr, tmp, i = ar.length;
+    //if the copy flag is truthy,
+    if(copy){
+      //create a new array so we don't affect the original
+      newAr = [];
+      //iterate through the original array backwards
       while(i--){
-        //if occurs at another index in the array (searched from front)
-        if(_indexOf.call(ar, ar[i]) !== i){
-          //remove the element at this index (at the back of the array)
-          _splice.call(ar, i, 1);
+        //if the value from the original array is not in the new array
+        if(_indexOf.call(newAr, tmp = ar[i], start) == -1){
+          //tack it to the beginning of the array
+          _splice.call(newAr, 0, 0, tmp);
         }
       }
-      return ar;
-    },
-    
-    
-    "require": function require(moduleNamespace, modulePath, fn){
-      //TODO: add functionality to check passed namespaces
-      //need to have events system in place first.
-      if(1==1){
-        fn();
-        return true;
-      }
-      return false;
-    },
-    
-    
-    //*****************************************************************************************************
-    // String manupulation module
-    //*****************************************************************************************************
-    "str":{
-      "isUpper": function isUpper(str){ return _every.call(str, function(ch){ return (ch.toUpperCase() == ch && ch.toLowerCase() != ch); }); },
-      "isLower": function isLower(str){ return _every.call(str, function(ch){ return (ch.toLowerCase() == ch && ch.toUpperCase() != ch); }); },
-      "right"  : function right(str, length){ return (str + '').substr(str.length - Math.min(length, str.length)); },
-      "left"   : function left(str, length){ return (str + '').substr(0, length); },
-      "repeat" : function repeat(str, times){
-        var s = '';
-        times = Math.max(times || 0, 0);
-        while(times){
-          //http://stackoverflow.com/questions/202605/repeat-string-javascript
-          //http://stackoverflow.com/users/345520/artistoex
-          //bitwise AND operator
-          if(times & 1){ s += str; }
-          times >>= 1; //bitwise shift and assignment operator equivalent to: times = times >> 1;
-          str += str;
-        }
-        return s;
-      },
-      
-      "pad"    : function pad(str, length, padWith, onRight){
-        length = Math.max(length, 0);
-        if(length == 0){ return ''; }
-        padWith = padWith || '0';
-        str = onRight ? _.str.right(str, length) : _.str.left(str, length);
-        // work on this calculation to only take enough repeats to cover the length
-        var s = _.str.repeat(padWith, Math.max(Math.ceil(length/padWith.length) - str.length, 0));
-        return onRight ? str + _.str.right(s, length-str.length) : _.str.left(s, length-str.length) + str;
-      },
-      
-      "trim": _trim ? function(str){ return _trim.call(str); } : function(str){
-        str += '';
-        //http://blog.stevenlevithan.com/archives/faster-trim-javascript, trim12
-        str = str.replace(/^\s\s*/, '');
-        var ws = /\s/, i = str.length;
-        while(ws.test(str.charAt(--i))){} //there is nothing within the braces. this is not a typo
-        return str.slice(0, i + 1);
-      },
-      
-      /***************************************************************/
-      //isValidString
-      //returns true if the supplied string matches the corresponding regular expression for the supplied format type
-      "valid": function valid(str, formatType){
-        var reOrFn = _.str.formats[formatType];
-        if(_.isFunction(reOrFn)){ return reOrFn(str); }
-        if(reOrFn instanceof RegExp){ return reOrFn.test(str); }
-        throw 'Invalid format type provided: "' + formatType + '". Inspect crux.str.formats for valid format types.';
-      },
-      
-      "formats": {
-        "email"         : /^[A-Za-z0-9_\-\.]+@(([A-Za-z0-9\-])+\.)+([A-Za-z\-])+$/,
-        //TODO: Add partial string validation regexs for all formats
-        //      (stop user from entering invalid chars for the validation type)
-        "email_partial" : /^[A-Za-z0-9_\-\.@]+$/,
-        "phone"         : /^(\(?[0-9]{3}\)?)? ?\-?[0-9]{3}\-?[0-9]{4}$/,
-        "number_dec"    : /^-?\d+(\.\d+)?$/,
-        "number_int"    : /^-?\d+$/,
-        "postalcode_ca" : /^[abceghjklmnprstvxy][0-9][abceghjklmnprstvwxyz]\s?[0-9][abceghjklmnprstvwxyz][0-9]$/i,
-        "postalcode_us" : /^([0-9]{5})(?:[-\s]*([0-9]{4}))?$/,
-        "postalcode_uk" : /^([a-zA-Z]){1}([0-9][0-9]|[0-9]|[a-zA-Z][0-9][a-zA-Z]|[a-zA-Z][0-9][0-9]|[a-zA-Z][0-9]){1}([ ])([0-9][a-zA-z][a-zA-z]){1}$/,
-        "filename"      : /[^0-9a-zA-Z\._\(\)\+\-\!@#\$%\^&,`~\[\]{} ']/
-      },
-
-      "parseUri": (function(){
-        // parseUri 1.2.2
-        // (c) Steven Levithan <stevenlevithan.com>
-        // MIT License
-        function parseUri(str, doc){
-         var relativeTo = (doc && doc.location) ? parseUri(doc.location.href) : (_.isString(doc) ? parseUri(doc) : null);
-             o   = parseUri.options,
-             m   = o.parser[(relativeTo || o.strictMode) ? "strict" : "loose"].exec(str),
-             uri = {},
-             i   = 14;
-        
-          while(i--){ uri[o.key[i]] = m[i] || ""; }
-        
-          uri[o.q.name] = {};
-          uri[o.key[12]].replace(o.q.parser, function ($0, $1, $2) {
-            if($1) uri[o.q.name][$1] = $2;
-          });
-          
-          if(relativeTo){
-            ["protocol","authority","userInfo","user","password","host","port"].forEach(function(s){ uri[s] = uri[s] || relativeTo[s]; });
-            ["relative","path","directory"].forEach(function(s){ uri[s] = (uri[s].charAt(0) == '/') ? uri[s] : relativeTo["directory"] + uri[s]; });
-          }
-        
-          return uri;
-        }
-        parseUri.options = {
-          strictMode: false,
-          key: ["source","protocol","authority","userInfo","user","password","host","port","relative","path","directory","file","query","anchor"],
-          q:   {
-            name:   "queryKey",
-            parser: /(?:^|&)([^&=]*)=?([^&]*)/g
-          },
-          parser: {
-            strict: /^(?:([^:\/?#]+):)?(?:\/\/((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?))?((((?:[^?#\/]*\/)*)([^?#]*))(?:\?([^#]*))?(?:#(.*))?)/,
-            loose:  /^(?:(?![^:@]+:[^:@\/]*@)([^:\/?#.]+):)?(?:\/\/)?((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?)(((\/(?:[^?#](?![^?#\/]*\.[^?#\/.]+(?:[?#]|$)))*\/?)?([^?#\/]*))(?:\?([^#]*))?(?:#(.*))?)/
-          }
-        };
-        
-        return parseUri;
-      })(),
-      
-      "cleanWordMarkup": function cleanWordMarkup(str){
-        // Remove unnecessary tag spans (comments and title)
-        str = str.replace(/\<\!--(\w|\W)+?--\>/gim, '');
-        str = str.replace(/\<title\>(\w|\W)+?\<\/title\>/gim, '');
-        // Remove all classes and styles
-        str = str.replace(/\s?class=\w+/gim, '');
-        str = str.replace(/\s+style=\'[^\']+\'/gim, '');
-        str = str.replace( /<(\w[^>]*) style="([^\"]*)"([^>]*)/gi, "<$1$3" ) ;
-        // Remove unnecessary tags
-        str = str.replace(/<(meta|link|\/?o:|\/?style|\/?font|\/?img|\/?h|\/?a|\/?script|\/?div|\/?st\d|\/?head|\/?html|body|\/?body|\/?span|!\[)[^>]*?>/gim, '');
-        // Remove underline tags
-        str = str.replace(/<\/?u>/gim,'');    
-        // Get rid of empty paragraph tags
-        str = str.replace(/(<[^>]+>)+&nbsp;(<\/\w+>)/gim, '');
-        // Remove bizarre v: element attached to <img> tag
-        str = str.replace(/\s+v:\w+=""[^""]+""/gim, '');
-        // Remove extra lines
-        str = str.replace(/"(\n\r){2,}/gim, '');
-        // Fix entites
-        str = str.replace("&ldquo;", "\"");
-        str = str.replace("&rdquo;", "\"");
-        str = str.replace("&mdash;", "â€“");
-        return str;
-      }
-      
+      return newAr;
     }
-  };
+    //change the original array
+    while(i--){
+      //if occurs at another index in the array (searched from front)
+      if(_indexOf.call(ar, ar[i], start) !== i){
+        //remove the element at this index (at the back of the array)
+        _splice.call(ar, i, 1);
+      }
+    }
+    return ar;
+  },
   
   
+  requires: function requires(moduleNamespace, modulePath, fn){
+    //TODO: add functionality to check passed namespaces
+    //need to have events system in place first.
+    if(1==1){
+      fn();
+      return true;
+    }
+    return false;
+  },
+  
+  /***************************************************************/
+  //getData
+  //
+  getData: function getData(obj, key){
+    var cache  = obj.__cruxData__ || (obj.__cruxGUID__ && _cache.elementData[obj.__cruxGUID__]) || undefined;
+    return (!key && cache) || (cache && _hasOwnProperty.call(cache, key) ? cache[key] : undefined);
+  },
+  
+  
+  /***************************************************************/
+  //setData
+  //
+  setData: function setData(obj, key, data, merge){
+    var cache, uid, container, propname, hasOtherKey;
+    if(key == '__owner__'){ throw 'Invalid key name: ' + key; }
     
-  _.extend(_.dom, {
-    //we can't assign this until Sizzle is instanciated at the end of this file 
-    "selectorEngine": null,
-    "selectorEngine_matches": null,
-    //***************************************************************
-    //childOf 
-    //returns true if all elements in the collection are DOM descendents of the supplied dom element, otherwise returns false.
-    "childOf": function childOf(elChild, elParent, blnBridgeIframes){
-      //var elChild = this.index(0);
-      
-      if(!_.isElement(elChild) || !_.isElement(elParent, true)){
-        return null;
-      }
-      //if the browser supports the "contains" method (basically everyone but Firefox)
-      if(elParent.contains){
-        return elParent.contains(elChild);
-      }
-      //Firefox
-      if(elChild.compareDocumentPosition){
-        return Boolean(elParent.compareDocumentPosition(elChild) & 16); //single & is the bitwise AND operator, not a typo (compareDocumentPosition returns a bitmask).
-      }
-      //fallback to calculating it ourselves
-      return (_.dom.climb(elChild, function(nodes, elParent){ if(this==elParent) return true; }, [elParent], blnBridgeIframes) === true);
-    },
-    
-    //***************************************************************
-    //climbDOMTree
-    //climbs up the DOM tree one node at a time, starting from the supplied element "elStart"
-    //with each level, fnEvaluate is executed (with it's "this" value being the currently evaluated node)
-    //the first argument passed to fnEvaluate will be an array of the previously evaluated nodes, followed by 
-    //any arguments passed in the arArguments array 
-    "climb": function climb(el, fn, jumpIframes){
-      var current = el,
-          parent,
-          parentWindow,
-          returnVal;
-          
-      while(current){
-        //if we are allowing this climb to escape from the containing iframe (if there is one)
-        //check if the node is a DOCUMENT_NODE
-        if(jumpIframes && current.nodeType == nodeTypes.DOCUMENT_NODE){
-          //find the element's window's parent window 
-          parentWindow = (current.defaultView && current.defaultView.parent) || (current.parentWindow && current.parentWindow.parent);
-          if(!parentWindow){
-            return; //there is no parent window, so we're done
-          }
-          //search through the parent's Iframes to find this element's document
-          var iframes = parentWindow.document.getElementsByTagName('IFRAME');
-          i = iframes.length;
-          while(i--){
-            //supress the error if we try to access the document object from another domain 
-            try{
-              //if the iframe's document accessed from the parent window is our document 
-              if(iframes[i].contentWindow.document == current){
-                current = iframes[i]; //then start climbing again at the iframe element of the parent window
-              }
-            }
-            //don't need to do anything 'cause if it's not in the same domain, it's not this document anyway
-            catch(e){}
+    //when the data will be set to undefined
+    if(data === undefined){
+      //record the current value
+      container = obj.__cruxData__ ? obj : _cache.elementData;
+      propname  = obj.__cruxData__ ? '__cruxData__' : obj.__cruxGUID__;
+      if(propname && (cache = container[propname])){
+        data = key ? cache[key] : cache;
+        for(var k in cache){
+          if(_hasOwnProperty.call(cache, k) && k !== '__owner__' && k !== key){
+            hasOtherKey = 1;
+            break;
           }
         }
+        if(!key || !hasOtherKey){
+          container[propname] = undefined;
+          delete container[propname];
+        }
+        else if(key && _hasOwnProperty(cache, key)){
+          //for implementations that won't actually delete the property
+          cache[key] = undefined;
+          delete cache[key];
+        }
+      }
+      //return the value of key
+      return data;
+    }
+    //
+    if(obj.__cruxGUID__ || _.isElement(obj)){
+      uid = obj.__cruxGUID__ || (obj.__cruxGUID__ = _.guid());
+      cache = _cache.elementData[uid] || (_cache.elementData[uid] = {"__owner__": obj});
+    }
+    else{
+      cache = obj.__cruxData__ || (obj.__cruxData__ = {});
+    }
+    if(merge && !key){
+      return _.extend(cache, data);
+    }
+    return cache[key] = ((merge && _.isObject(data) && _hasOwnProperty.call(cache, key)) ? _.extend(cache[key], data) : data);
+  },
+  
+  //"removeData": function removeData(el, key){ return _.setData(el, key, undefined); },
+  
+  keys: function keys(obj, inherited){
+    var ar = [];
+    for(var key in obj){
+      if(inherited || _hasOwnProperty.call(obj, key)){
+        ar.push(key);
+      }
+    }
+    return ar;
+  },
+  
+ 
+  //browser
+  //adapted from http://quirksmode.org/js/support.html
+  //ONLY TO BE USED FOR ISSUES THAT CANNOT BE DELT WITH THROUGH OBJECT DETECTION
+  //accessable properties are:
+  //.name    = 'Explorer', 'Firefox', 'Chrome', etc.
+  //.version = 1, 2, 3, 4, etc.
+  //.OS      = 'Windows', 'Linux', 'Mac', 'iPhone', etc.
+  browser: (function parseUserAgent(){
+    var n = window.navigator,
+        versionSearchString;
+    var dataBrowser = [
+      { str: n.userAgent, sub: "Chrome",     ident: "Chrome" },
+      { str: n.userAgent, sub: "OmniWeb",    ident: "OmniWeb", versionSearch: "OmniWeb/" },
+      { str: n.vendor,    sub: "Apple",      ident: "Safari", versionSearch: "Version"},
+      { prop: window.opera, ident: "Opera" },
+      { str: n.vendor,    sub: "iCab",       ident: "iCab" },
+      { str: n.vendor,    sub: "KDE",        ident: "Konqueror" },
+      { str: n.userAgent, sub: "Firefox",    ident: "Firefox" },
+      { str: n.vendor,    sub: "Camino",     ident: "Camino" },
+      { str: n.userAgent, sub: "Netscape",   ident: "Netscape" }, // for newer Netscapes (6+)
+      { str: n.userAgent, sub: "MSIE",       ident: "Explorer", versionSearch: "MSIE" },
+      { str: n.userAgent, sub: "Gecko",      ident: "Mozilla", versionSearch: "rv" },
+      { str: n.userAgent, sub: "BlackBerry", ident: "BlackBerry" },
+      { str: n.userAgent, sub: "Mozilla",    ident: "Netscape", versionSearch: "Mozilla" } // for older Netscapes (4-)
+    ];
+    
+    var dataOS = [
+      { str: n.platform,  sub: "Win", ident: "Windows" },
+      { str: n.platform,  sub: "Mac", ident: "Mac" },
+      { str: n.userAgent, sub: "iPhone", ident: "iPhone/iPod" },
+      { str: n.userAgent, sub: "BlackBerry", ident: "BlackBerry" },
+      { str: n.platform,  sub: "Linux", ident: "Linux" }
+    ];
+    
+    function searchString(data){
+      for(var str, i=0, l=data.length;i<l;i++){
+        versionSearchString = data[i].versionSearch || data[i].ident;
+        //supposed to be a single equals sign. assigns the value then checks truthyness
+        if(str = data[i].str){
+          if(str.indexOf(data[i].sub) != -1){ return data[i].ident; }
+        }
+        else if(data[i].prop){ return data[i].ident; }
+      }
+    }
+    
+    function searchVersion(str){
+      var index = str.indexOf(versionSearchString);
+      if(index == -1){ return; }
+      return parseFloat(str.substring(index+versionSearchString.length+1));
+    }
+    
+    return {
+      name    : searchString(dataBrowser) || "Unknown",
+      version : document.documentMode || searchVersion(n.userAgent) || searchVersion(n.appVersion) || 0,
+      OS      : searchString(dataOS) || "Unknown"
+    };
+  })(),
+  
+  
+  
+  
+  
+  
+  /***************************************************************/
+  //addEvent
+  listen: function listen(target, type, handler){
+    var arResults,
+        i, l,
+        savedSelector,
+        listeners,
+        listenerContainer,
+        eventNamespace = '';
+    
+    if(_.isString(type)){
+      type = _.str.trim(type);
+      //TODO: replace multiple spaces with one space
+      //if type is a space delimited string of multiple event types,
+      //remove any leading or trailing whitespace and convert it to an array
+      if(type.indexOf(' ') > -1){
+        type = type.split(' ');
+      }
+    }
+    
+    //resolve a selector string into element references
+    if(_.isString(target)){
+      savedSelector = target;
+      //return an array of matched elements
+      target = _.dom.selectorEngine(target);
+      //if it's 1, then get the first element in the array, if 0 then it's undefined
+      if(target.length < 2){
+        target = target[0];
+      }
+    }
+    
+    //an array of event targets can be passed and each target element will have the event type handler added to it
+    if(_.isArray(target)){
+      arResults = [];
+      for(i=0, l=type.length; i<l; i++){
+        arResults.push(listen(target[i],  type, handler));
+      }
+      return arResults;
+    }
+    //an array of event types can be passed and each event type on the target element will have the handler added to it
+    if(_.isArray(type)){
+      arResults = [];
+      for(i=0, l=type.length; i<l; i++){
+        arResults.push(listen(target, type[i], handler));
+      }
+      return arResults;
+    }
+    
+    //separate the namespace from the event type, if both were included
+    if(type.indexOf('.') > -1){
+      var tmpParts = type.split('.');
+      type = tmpParts.pop();
+      eventNamespace = tmpParts.join('.');
+    }
+    
+    //if we don't have all the arguments we need..
+    if(!target || !handler || !type){
+      //compose an error description string
+      var strErrDesc =  'Error: DDP -> F -> addEvent: Event target or listener or type missing. ' +
+                        '\nTarget: ' + (target ? (target.id || target.className || savedSelector || 'none') : savedSelector || 'none') +
+                        '\nType: "' + (eventNamespace ? eventNamespace + '.' + type : type) + '"' +
+                        '\nListener: "' + (handler ? handler.toString().substr(0, 100).replace('\n', '') : 'none') + '"';
+                        //arguments.callee.caller.arguments.callee.caller.toString()
+      //if we haven't explicitly said we want to suppress these types of errors, throw an exception
+      //(this way, we can do it on a per page/site basis)
+      /*
+      if(!lastProperty("ddp.c.suppressEventErrors")){
+        throw strErrDesc;
+      }
+      */
+      //try to log the error to the console
+      try{ console.log(strErrDesc); }catch(e){}
+      //return null to indicate that there was a problem adding the listener
+      return null;
+    }
+  
+  
+    //emulate events that are in "ddpEmulatedEvents" if the browser doesn't support them
+    if(ddpEmulatedEvents[type] && !target['ddpEmulated_' + type] && !isEventSupported(type, target)){
+      //mark the element as having the emulation set up (so we don't try to do it again)
+      target['ddpEmulated_' + type] = true;
+      //add any prerequisite emulated events (ie. mouseenter emulation depends on the mouseleave event and vise-versa)
+      if(ddpEmulatedEvents[type].prerequisiteEvents){
+        ddpEmulatedEvents[type].prerequisiteEvents.split(' ').forEach(function(emuEventType){
+          listen(target, ddpEmulatedEvents[emuEventType].attachToEvent, ddpEmulatedEvents[emuEventType].fn);
+        });
+      }
+      //if it's a one-time event
+      if(ddpEmulatedEvents[type].isOneTime){
+        //set it as such
+        setOneTimeEvent(target, type);
+      }
+      //add the handler that performs the emulation to the event that can be used to trigger the emulation
+      listen(ddpEmulatedEvents[type].attachToElement || target, ddpEmulatedEvents[type].attachToEvent, function(objEvent){ return ddpEmulatedEvents[type].fn && ddpEmulatedEvents[type].fn.call(target, objEvent); });
+    }
+    
+    //if this is a one-time event (such as window 'load'), and it has already been fired,  
+    //if(getData(target, 'ddpOneTimeEvent_' + type) && getData(target, 'ddpOneTimeEvent_' + type + '_fired') && !forceAddOTE){
+    if(_.getData(target, 'cruxOTE_' + type) && _.getData(target, 'cruxOTE_' + type + '_fired')){
+      //then execute the event listener right away (using the event target as "this" and passing a new event object to it).
+      //var obj = _createPlainEventObject(type);
+      var obj = _.getData(target, 'cruxOTE_' + type + '_eventObject');
+      //obj.target = target;
+      //obj.currentTarget = target;
+      handler.call(target, obj);
+      return 4; //indicate a one time event re-fire
+    }
+    
+    //create a function to repair the scope and redirect the proper event object. 
+    var fn = function(ev){
+      var rv,
+          objEvent = ev || window.event; //use the event object passed as an argument, or try to use the global event object available in IE <10
+      //if there is no event namespace or the event namespace matches the handler namespace
+      if(!objEvent.eventNamespace || objEvent.eventNamespace == fn.namespace){
+        //white a property on the event object with the current handler namespace 
+        objEvent.listenerNamespace = fn.namespace;
+        //call the handler using the current target as it's "this" (scope of the target object) 
+        rv = fn.innerFn.call(objEvent.currentTarget || target, objEvent);
+        if(rv === false || (objEvent.type === 'beforeunload' && isString(rv))){
+          objEvent.returnValue = rv;
+        }
+        else{
+          rv = objEvent.returnValue;
+        }
+      }
+      //if it's a 'beforeunload' event and the return value from the handler was a string, use the handler return value.
+      //otherwise, use the event objest returnValue property
+      return rv;
+    };
+    //record the inner function (actual event listener) on the fn function (so we can remove it, tell is it's already attached)
+    fn.innerFn = handler;
+    fn.namespace = eventNamespace;
+    
+    
+    //get the current listener container or create a new one
+    listenerContainer = _.getData(target, 'ddp_listeners') || _.setData(target, 'ddp_listeners', {});
+    
+    //get the listeners array if it exists and check if it's an array, if it's not then
+    if(!_.isArray(listeners = listenerContainer[type])){
+      //create a new array and assign it to both the listener container and our local variable "listeners"
+      listeners = listenerContainer[type] = [fn];
+    }
+    //if there are no listeners in the array or the new listener isn't present in the array
+    else if(listeners.length == 0 || !listeners.some(function(fn){ return fn.innerFn == handler; })){
+      //just push the listener onto the end of the array
+      listeners.push(fn);
+    }
+    //the handler has already been added
+    else{
+      //return zero
+      return 0;
+    }
+    
+    //w3c standard browsers
+    //add the event listener. specify false for the last argument to use the bubbling phase (to mirror IE's limitation to only bubble)
+    //(if the addEventListener method returns false, move to the next event model)
+    if(target.addEventListener && (listeners.ddpEventModel === 1 || !listeners.ddpEventModel) && target.addEventListener(type, fn, false) !== false){
+      //return the event model used to add the event handler
+      listeners.ddpEventModel = 1;
+    }
+    //Internet Explorer
+    //typeof target['on' + type] != 'undefined' &&
+    else if(target.attachEvent && (listeners.ddpEventModel === 2 || !listeners.ddpEventModel) && _.isEventSupported(type, target)){
+      //attach the event using the IE event model (bubble only)
+      target.attachEvent('on' + type, fn);
+      //if it's the first time a handler has been added
+      if(!listeners.ddpEventModel){
+        //add a handler to the window onunload event so that we can detach this event when the window unloads
+        //(try to relase event handler memory on old IEs)
+        window.attachEvent('onunload', function(){
+          //remove the listner container object and get a reference to it
+          var ar, listenerContainer = _.setData(target, 'ddp_listeners', undefined);
+          //if there is an array for this event type
+          if(listenerContainer && _.isArray(ar = listenerContainer[type])){
+            //go through each handler and remove it
+            for(var i=0, l=ar.length; i<l; i++){ target.detachEvent('on' + type, ar[i]); }
+            //clear the array
+            ar.length = 0;
+          }
+        });
+        //return the event model used to add the event handler
+        listeners.ddpEventModel = 2;
+      }
+    }
+    //if nothing has worked yet... fallback to the AERM method
+    else{
+      //if this is a DOMElement or the window object and if the
+      //object doesn't have our "on" + type function assigned to "fireAERMListeners"
+      //(which means this is the first time an aerm handler has been added for this type)
+      if((isElement(target) || target == window) && target['on' + type] != fireAERMListeners){
+        //record the old value (in case someone manually assigned a handler already, or it was in the HTML)
+        var fnOldStyleFunction = target['on' + type];
+        //assign our handler
+        target['on' + type] = fireAERMListeners;
+        //and if the 
+        if(typeof fnOldStyleFunction == 'function'){
+          //add the old manual style event handler (global namespace)
+          addEvent(target, type, fnOldStyleFunction);
+        }
+      }
+      //record the event model used to attach the listener
+      listeners.ddpEventModel = 3;
+    }
+    
+    //return the event model that was used to attach the handler
+    return listeners.ddpEventModel;
+  },
+  
+  
+  //*****************************************************************************************************
+  // String manupulation module
+  //*****************************************************************************************************
+  str:{
+    isUpper: function isUpper(str){ return (str = str + '') == str.toUpperCase(); },
+    isLower: function isLower(str){ return (str = str + '') == str.toLowerCase(); },
+    right  : function right(str, length){ return (str + '').substr(str.length - Math.min(length, str.length)); },
+    left   : function left(str, length){ return (str + '').substr(0, length); },
+    escapeHTML: function escapeHTML(str){return (str +'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); },
+    unescapeHTML: function unescapeHTML(str){ return (str+'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&'); },
+    repeat : function repeat(str, times){
+      var s = '';
+      times = Math.max(times || 0, 0);
+      while(times){
+        //http://stackoverflow.com/questions/202605/repeat-string-javascript
+        //http://stackoverflow.com/users/345520/artistoex
+        //bitwise AND operator
+        if(times & 1){ s += str; }
+        times >>= 1; //bitwise shift and assignment operator equivalent to: times = times >> 1;
+        str += str;
+      }
+      return s;
+    },
+    
+    pad    : function pad(str, length, padWith, onRight){
+      padWith = padWith || '0';
+      if((length = Math.max(length, 0)) == 0){ return ''; }
+      if(str.length >= length){ return onRight ? _.str.right(str, length) : _.str.left(str, length); }
+      //generate the repeated string to pad the passed one with
+      //(may be larger than the length required if "padWith" contains multiple characters)
+      var s = _.str.repeat(padWith, Math.max(Math.ceil(length/padWith.length) - str.length, 0));
+      return onRight ? str + _.str.right(s, length-str.length) : _.str.left(s, length-str.length) + str;
+    },
+    
+    trim: _trim ? function(str){ return _trim.call(str); } : function(str){
+      str += ''; //convert to string
+      //http://blog.stevenlevithan.com/archives/faster-trim-javascript, trim12
+      str = str.replace(/^\s\s*/, '');
+      var ws = /\s/, i = str.length;
+      while(ws.test(str.charAt(--i))){} //there is nothing within the braces. this is not a typo
+      return str.slice(0, i + 1);
+    },
+    
+    /***************************************************************/
+    //isValidString
+    //returns true if the supplied string matches the corresponding regular expression for the supplied format type
+    valid: function valid(str, formatType){
+      var reOrFn = _.str.formats[formatType];
+      if(reOrFn instanceof RegExp){ return reOrFn.test(str); }
+      if(_.isFunction(reOrFn))    { return reOrFn(str);      }
+      throw 'Invalid format type provided: "' + formatType + '". Inspect crux.str.formats for valid format types.';
+    },
+    
+    formats: {
+      email         : /^[A-Za-z0-9_\-\.]+@(([A-Za-z0-9\-])+\.)+([A-Za-z\-])+$/,
+      //TODO: Add partial string validation regexs for all formats
+      //      (stop user from entering invalid chars for the validation type)
+      email_partial : /^[A-Za-z0-9_\-\.@]+$/,
+      phone         : /^(\(?[0-9]{3}\)?)? ?\-?[0-9]{3}\-?[0-9]{4}$/,
+      number_dec    : /^-?\d+(\.\d+)?$/,
+      number_int    : /^-?\d+$/,
+      postalcode_ca : /^[abceghjklmnprstvxy][0-9][abceghjklmnprstvwxyz]\s?[0-9][abceghjklmnprstvwxyz][0-9]$/i,
+      postalcode_us : /^([0-9]{5})(?:[-\s]*([0-9]{4}))?$/,
+      postalcode_uk : /^([a-zA-Z]){1}([0-9][0-9]|[0-9]|[a-zA-Z][0-9][a-zA-Z]|[a-zA-Z][0-9][0-9]|[a-zA-Z][0-9]){1}([ ])([0-9][a-zA-z][a-zA-z]){1}$/,
+      filename      : /[^0-9a-zA-Z\._\(\)\+\-\!@#\$%\^&,`~\[\]{} ']/
+    },
+    
+    toCamel: function toCamel(str, changeFloat){
+      return (changeFloat && str == 'float')
+               ? _detected.floatProperty
+               : str.replace(toCamel.re || (toCamel.re = /\W+(.)/g), function(_, l){ return l.toUpperCase(); });
+               //: str.toLowerCase().replace(/-([a-z])/g, function (_, l) { return l.toUpperCase(); });
+    },
+    
+    toDashed: function toDashed(str, changeFloat){
+      return (changeFloat && str == 'styleFloat' || str == 'cssFloat')
+               ? 'float'
+               : str.replace(toDashed.re1 || (toDashed.re1 = /\W+/g), '-')
+                 .replace(toDashed.re2 || (toDashed.re2 = /([a-z\d])([A-Z])/g), '$1-$2')
+                 .toLowerCase();
+    },
+
+    parseUri: (function(){
+      // parseUri 1.2.2
+      // (c) Steven Levithan <stevenlevithan.com>
+      // MIT License
+      function parseUri(str, doc){
+       var relativeTo = (doc && doc.location) ? parseUri(doc.location.href) : (_.isString(doc) ? parseUri(doc) : null);
+           o   = parseUri.options,
+           m   = o.parser[(relativeTo || o.strictMode) ? "strict" : "loose"].exec(str),
+           uri = {},
+           i   = 14;
+      
+        while(i--){ uri[o.key[i]] = m[i] || ""; }
+      
+        uri[o.q.name] = {};
+        uri[o.key[12]].replace(o.q.parser, function ($0, $1, $2) {
+          if($1) uri[o.q.name][$1] = $2;
+        });
         
-        if(returnVal = fn.call(this, current) !== undefined){
-          return returnVal;
+        if(relativeTo){
+          ["protocol","authority","userInfo","user","password","host","port"].forEach(function(s){ uri[s] = uri[s] || relativeTo[s]; });
+          ["relative","path","directory"].forEach(function(s){ uri[s] = (uri[s].charAt(0) == '/') ? uri[s] : relativeTo["directory"] + uri[s]; });
         }
-        //move to the next node up
-        current = current.parentNode
+        return uri;
       }
-    },
+      parseUri.options = {
+        strictMode: false,
+        key: ["source","protocol","authority","userInfo","user","password","host","port","relative","path","directory","file","query","anchor"],
+        q:   {
+          name:   "queryKey",
+          parser: /(?:^|&)([^&=]*)=?([^&]*)/g
+        },
+        parser: {
+          strict: /^(?:([^:\/?#]+):)?(?:\/\/((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?))?((((?:[^?#\/]*\/)*)([^?#]*))(?:\?([^#]*))?(?:#(.*))?)/,
+          loose:  /^(?:(?![^:@]+:[^:@\/]*@)([^:\/?#.]+):)?(?:\/\/)?((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?)(((\/(?:[^?#](?![^?#\/]*\.[^?#\/.]+(?:[?#]|$)))*\/?)?([^?#\/]*))(?:\?([^#]*))?(?:#(.*))?)/
+        }
+      };
+      
+      return parseUri;
+    })(),
     
-    //***************************************************************
-    "getClass": function getClass(el){ return (el && el.getAttribute && el.getAttribute(_detected.CSSClassAttribute)) || ''; },
-    "setClass": function setClass(el, str){
-      if(!el || !el.setAttribute){
-        return false;
-      }
-      if(_.dom.getClass(el) !== str){
-        el.setAttribute(_detected.CSSClassAttribute, str);
-      }
+    cleanWordMarkup: function cleanWordMarkup(str){
+      // Remove unnecessary tag spans (comments and title)
+      str = str.replace(/\<\!--(\w|\W)+?--\>/gim, '');
+      str = str.replace(/\<title\>(\w|\W)+?\<\/title\>/gim, '');
+      // Remove all classes and styles
+      str = str.replace(/\s?class=\w+/gim, '');
+      str = str.replace(/\s+style=\'[^\']+\'/gim, '');
+      str = str.replace( /<(\w[^>]*) style="([^\"]*)"([^>]*)/gi, "<$1$3" ) ;
+      // Remove unnecessary tags
+      str = str.replace(/<(meta|link|\/?o:|\/?style|\/?font|\/?img|\/?h|\/?a|\/?script|\/?div|\/?st\d|\/?head|\/?html|body|\/?body|\/?span|!\[)[^>]*?>/gim, '');
+      // Remove underline tags
+      str = str.replace(/<\/?u>/gim,'');    
+      // Get rid of empty paragraph tags
+      str = str.replace(/(<[^>]+>)+&nbsp;(<\/\w+>)/gim, '');
+      // Remove bizarre v: element attached to <img> tag
+      str = str.replace(/\s+v:\w+=""[^""]+""/gim, '');
+      // Remove extra lines
+      str = str.replace(/"(\n\r){2,}/gim, '');
+      // Fix entites
+      str = str.replace("&ldquo;", "\"");
+      str = str.replace("&rdquo;", "\"");
+      str = str.replace("&mdash;", "â€“");
       return str;
-    },
+    }
     
-    /***************************************************************/
-    //addClass
-    //adds a CSS class to the element's className attribute (if it's not already there)
-    //accepts a reference to an element and a string containing the class name
-    "addClass": function addClass(elementOrArray, strClassToAdd){
-      //if an array of elements was passed in, just set ar equal to it, otherwise, make an array with a single element
-      var ar = _.isElement(elementOrArray) ? [elementOrArray] : elementOrArray,
-          c = _config.classRECaching ? arguments.callee.cache || (arguments.callee.cache = {}) : {},
-          l = ar.length,
-          i, el, strClassName, re;
-          
-      _.str.trim(strClassToAdd).split(' ').forEach(function(str){
-        if(!str){ return; }
-        re = null;
-        i = l;
-        while(i--){
-          el = ar[i];
-          if(!_.isElement(el)){
-            continue;
-          }
-          //see if the element implements the html5 classList interface
-          if('classList' in el && el.classList.add){
-            //browser implementation takes care of not adding duplicates
-            el.classList.add(str);
-          }
-          //if the element passed is valid and the class isn't already there
-          else if(el){
-            re = re || c[str] || (c[str] = new RegExp('\\b' + str + '\\b', 'g'));
-            //get the current class string and test it with the regular expression
-            if(!re.test(strClassName = _.str.trim(_.dom.getClass(el)) || '')){
-              strClassName += (strClassName ? ' ' : '') + str;
-            }
-            //put the modified/filtered class string back in the element 
-            _.dom.setClass(el, strClassName);
-          }
+  }
+};
+
+
+//the function that will be called when the actual event is fired.
+function fireAERMListeners(evt){
+  var objEvent = evt || window.event,
+      elDocEl = document.documentElement,
+      elTarget = (objEvent && objEvent.currentTarget) || this,
+      listenerContainer = getData(elTarget, 'ddp_listeners'),
+      fnTmp;
+
+  //if the element has listeners
+  if(listenerContainer){
+    //take a copy of the handlers that were effective at the time the event was fired
+    var listeners = makeRealArray(listenerContainer[objEvent.type]);
+    
+    //execute the listeners in the order they were added
+    for(var i=0, l=listeners.length; i<l; i++){
+      //set the currentHandler to execute the listener
+      currentHandler = function(){ listeners[i](objEvent); };
+      //manualEventFireMethod (below) is a variable within only this module's scope that indicates which
+      //method can be used for firing manual events within a browser event (it was set up on instanciation)
+      //w3c
+      if(manualEventFireMethod == 1){
+        //firing the DDPAERMEvent on the document element (usually <HTML>), executes "currentHandler" within a browser event
+        //which provides the ability to show errors but keep them from breaking the rest of the framework
+        elDocEl.dispatchEvent(_createBrowserEventObject('DDPAERMEvent', {"cancelable": false, "bubbles": false}));
+      }
+      //ie<9
+      else if(manualEventFireMethod == 2){
+        //this fires the IE "onpropertychange" event on the documentElement (flips the value between 1 and -1)
+        //which executes the currentHandler from within an actual browser event
+        elDocEl.fireDDPAERMEvent *= -1;
+      }
+      //no support for encapsulating manual events within a browser event
+      else{
+        //just flat out execute it
+        currentHandler();
+      }
+      //clear the function from the "currentHandler"
+      currentHandler = null;
+    }
+  }
+  
+  //return the event return value
+  return objEvent.returnValue;
+}
+
+
+
+
+
+
+_.extend(_.dom, {
+  //we can't assign this until Sizzle is instanciated at the end of this file 
+  selectorEngine: null, //by default will be Sizzle()
+  selectorEngine_matches: null, //by default will be Sizzle.matches()
+  //***************************************************************
+  //childOf 
+  //returns true if all elements in the collection are DOM descendents of the supplied dom element, otherwise returns false.
+  childOf: function childOf(elChild, elParent, blnBridgeIframes){
+    //var elChild = this.index(0);
+    
+    if(!_.isElement(elChild) || !_.isElement(elParent, true)){
+      return null;
+    }
+    //if the browser supports the "contains" method (basically everyone but Firefox)
+    if(elParent.contains){
+      return elParent.contains(elChild);
+    }
+    //Firefox
+    if(elChild.compareDocumentPosition){
+      return Boolean(elParent.compareDocumentPosition(elChild) & 16); //single & is the bitwise AND operator, not a typo (compareDocumentPosition returns a bitmask).
+    }
+    //fallback to calculating it ourselves
+    return (_.dom.climb(elChild, function(nodes, elParent){ if(this==elParent) return true; }, [elParent], blnBridgeIframes) === true);
+  },
+  
+  //***************************************************************
+  //climbDOMTree
+  //climbs up the DOM tree one node at a time, starting from the supplied element "elStart"
+  //with each level, fnEvaluate is executed (with it's "this" value being the currently evaluated node)
+  //the first argument passed to fnEvaluate will be an array of the previously evaluated nodes, followed by 
+  //any arguments passed in the arArguments array 
+  climb: function climb(el, fn, jumpIframes){
+    var current = el,
+        parent,
+        parentWindow,
+        returnVal;
+        
+    while(current){
+      //if we are allowing this climb to escape from the containing iframe (if there is one)
+      //check if the node is a DOCUMENT_NODE
+      if(jumpIframes && current.nodeType == nodeTypes.DOCUMENT_NODE){
+        //find the element's window's parent window 
+        parentWindow = (current.defaultView && current.defaultView.parent) || (current.parentWindow && current.parentWindow.parent);
+        if(!parentWindow){
+          return; //there is no parent window, so we're done
         }
-      });
-      return elementOrArray;
-    },
-    
-    
-    /***************************************************************/
-    //removeClass
-    //removes a CSS class from the element's class attribute
-    //accepts a reference to an element and a string containing the class name
-    "removeClass": function removeClass(elementOrArray, classToRemove){
-      //if an array of elements was passed in, just set ar equal to it, otherwise, make an array with a single element
-      var ar = _.isElement(elementOrArray) ? [elementOrArray] : elementOrArray,
-          cache = _config.classRECaching ? arguments.callee.cache || (arguments.callee.cache = {}) : {},
-          l = ar.length,
-          i, el, strClass, re;
-      //be sure that the original string doesn't have any leading or trailing whitespace
-      _.str.trim(classToRemove).split(' ').forEach(function(str){
-        //don't process blanks
-        if(!str){ return; }
-        re = null; //clear the regular expression for the last string
-        i = l; //reset the counter
+        //search through the parent's Iframes to find this element's document
+        var iframes = parentWindow.document.getElementsByTagName('IFRAME');
+        i = iframes.length;
         while(i--){
-          el = ar[i];
-          if(!_.isElement(el)){
-            continue;
-          }
-          //if the element implements the html5 classList interface
-          else if('classList' in el && el.classList.remove){
-            el.classList.remove(str);
-          }
-          //if the class isn't already empty
-          else if(strClass = _.dom.getClass(el)){
-            re = re || cache[str] || (cache[str] = new RegExp('\\b' + str + '\\b', 'g'));
-            //if the modified string is different than the original
-            if(strClass != (strClass = _.str.trim(strClass.replace(re, '')))){
-              //update the element with the new class name string
-              _.dom.setClass(el, strClass);
+          //supress the error if we try to access the document object from another domain 
+          try{
+            //if the iframe's document accessed from the parent window is our document 
+            if(iframes[i].contentWindow.document == current){
+              current = iframes[i]; //then start climbing again at the iframe element of the parent window
             }
           }
+          //don't need to do anything 'cause if it's not in the same domain, it's not this document anyway
+          catch(e){}
         }
-      });
+      }
       
-      return elementOrArray;
-    },
-    
-    
-    /***************************************************************/
-    //hasClass
-    //accepts a reference to an element and string containing the class name to search for.
-    //returns true if the element has the specified class name, otherwise returns false.
-    "hasClass": function hasClass(elementOrArray, strClassToCheckFor){
-      //if an array of elements was passed in, just set ar equal to it, otherwise, make an array with a single element
-      var ar = _.isElement(elementOrArray) ? [elementOrArray] : elementOrArray,
-          cache = _config.classRECaching ? arguments.callee.cache || (arguments.callee.cache = {}) : {},
-          l = ar.length,
-          arReturn = [],
-          i, el, strClass, re;
-          
-      strClassToCheckFor = _.str.trim(strClassToCheckFor);
-      
-      for(i=0; i<l; i++){
+      if(returnVal = fn.call(this, current) !== undefined){
+        return returnVal;
+      }
+      //move to the next node up
+      current = current.parentNode
+    }
+  },
+  
+  /***************************************************************/
+  //getStyle
+  //returns the effective CSS style on an element
+  getStyle: function getStyle(el, str){
+    if(str=='opacity'){ return _.dom.getOpacity(el); }
+    return (window.getComputedStyle && window.getComputedStyle(el, '').getPropertyValue(str))
+            || (el.currentStyle && el.currentStyle[_.str.toCamel(str, true)])
+            || '';
+  },
+  
+  getOpacity: function getOpacity(el){
+    //TODO: import code from ddp
+    return 0;
+  },
+  
+  setOpacity: function setOpacity(el, val){
+    //TODO: import code from ddp (use 0 to 1 range instead of 0 to 100)
+  },
+  
+  //***************************************************************
+  getClass: function getClass(el){ return (el && el.getAttribute && el.getAttribute(_detected.CSSClassAttribute)) || ''; },
+  
+  setClass: function setClass(el, str){
+    if(!el || !el.setAttribute){
+      return false;
+    }
+    if(_.dom.getClass(el) !== str){
+      el.setAttribute(_detected.CSSClassAttribute, str);
+    }
+    return str;
+  },
+  
+  /***************************************************************/
+  //addClass
+  //adds a CSS class to the element's className attribute (if it's not already there)
+  //accepts a reference to an element and a string containing the class name
+  addClass: function addClass(elementOrArray, strClassToAdd){
+    //if an array of elements was passed in, just set ar equal to it, otherwise, make an array with a single element
+    var ar = _.isElement(elementOrArray) ? [elementOrArray] : elementOrArray,
+        c = _config.classRECaching ? arguments.callee.cache || (arguments.callee.cache = {}) : {},
+        l = ar.length,
+        i, el, strClassName, re;
+        
+    _.str.trim(strClassToAdd).split(' ').forEach(function(str){
+      if(!str){ return; }
+      re = null;
+      i = l;
+      while(i--){
         el = ar[i];
         if(!_.isElement(el)){
-          arReturn.push(false);
           continue;
         }
         //see if the element implements the html5 classList interface
-        if('classList' in el && el.classList.contains){
-          arReturn.push(strClassToCheckFor.split(' ').every(function(str){ return (!str ? true : el.classList.contains(str)); }));
+        if('classList' in el && el.classList.add){
+          //browser implementation takes care of not adding duplicates
+          el.classList.add(str);
         }
+        //if the element passed is valid and the class isn't already there
+        else if(el){
+          re = re || c[str] || (c[str] = new RegExp('\\b' + str + '\\b', 'g'));
+          //get the current class string and test it with the regular expression
+          if(!re.test(strClassName = _.str.trim(_.dom.getClass(el)) || '')){
+            strClassName += (strClassName ? ' ' : '') + str;
+          }
+          //put the modified/filtered class string back in the element 
+          _.dom.setClass(el, strClassName);
+        }
+      }
+    });
+    return elementOrArray;
+  },
+  
+  
+  /***************************************************************/
+  //removeClass
+  //removes a CSS class from the element's class attribute
+  //accepts a reference to an element and a string containing the class name
+  removeClass: function removeClass(elementOrArray, classToRemove){
+    //if an array of elements was passed in, just set ar equal to it, otherwise, make an array with a single element
+    var ar = _.isElement(elementOrArray) ? [elementOrArray] : elementOrArray,
+        cache = _config.classRECaching ? arguments.callee.cache || (arguments.callee.cache = {}) : {},
+        l = ar.length,
+        i, el, strClass, re;
+    //be sure that the original string doesn't have any leading or trailing whitespace
+    _.str.trim(classToRemove).split(' ').forEach(function(str){
+      //don't process blanks
+      if(!str){ return; }
+      re = null; //clear the regular expression for the last string
+      i = l; //reset the counter
+      while(i--){
+        el = ar[i];
+        if(!_.isElement(el)){
+          continue;
+        }
+        //if the element implements the html5 classList interface
+        else if('classList' in el && el.classList.remove){
+          el.classList.remove(str);
+        }
+        //if the class isn't already empty
         else if(strClass = _.dom.getClass(el)){
-          //
-          arReturn.push(strClassToCheckFor.split(' ').every(function(str){
-            //return (!str ? true : (getRegExp('hasClass_re1_' + str) || addRegExp('hasClass_re1' + str, new RegExp('\\b' + str + '\\b', 'g'))).test(strClass));
-            return (!str ? true : (cache[str] || (cache[str] = new RegExp('\\b' + str + '\\b', 'g'))).test(strClass));
-          }));
+          re = re || cache[str] || (cache[str] = new RegExp('\\b' + str + '\\b', 'g'));
+          //if the modified string is different than the original
+          if(strClass != (strClass = _.str.trim(strClass.replace(re, '')))){
+            //update the element with the new class name string
+            _.dom.setClass(el, strClass);
+          }
+        }
+      }
+    });
+    
+    return elementOrArray;
+  },
+  
+  
+  /***************************************************************/
+  //hasClass
+  //accepts a reference to an element and string containing the class name to search for.
+  //returns true if the element has the specified class name, otherwise returns false.
+  hasClass: function hasClass(elementOrArray, strClassToCheckFor){
+    //if an array of elements was passed in, just set ar equal to it, otherwise, make an array with a single element
+    var ar = _.isElement(elementOrArray) ? [elementOrArray] : elementOrArray,
+        cache = _config.classRECaching ? arguments.callee.cache || (arguments.callee.cache = {}) : {},
+        l = ar.length,
+        arReturn = [],
+        i, el, strClass, re;
+        
+    strClassToCheckFor = _.str.trim(strClassToCheckFor);
+    
+    for(i=0; i<l; i++){
+      el = ar[i];
+      if(!_.isElement(el)){
+        arReturn.push(false);
+        continue;
+      }
+      //see if the element implements the html5 classList interface
+      if('classList' in el && el.classList.contains){
+        arReturn.push(strClassToCheckFor.split(' ').every(function(str){ return (!str ? true : el.classList.contains(str)); }));
+      }
+      else if(strClass = _.dom.getClass(el)){
+        //
+        arReturn.push(strClassToCheckFor.split(' ').every(function(str){
+          //return (!str ? true : (getRegExp('hasClass_re1_' + str) || addRegExp('hasClass_re1' + str, new RegExp('\\b' + str + '\\b', 'g'))).test(strClass));
+          return (!str ? true : (cache[str] || (cache[str] = new RegExp('\\b' + str + '\\b', 'g'))).test(strClass));
+        }));
+      }
+      else{
+        arReturn.push(false);
+      }
+    }
+  
+    return (arReturn.length==1) ? arReturn[0] : arReturn;
+  },
+  
+  /***************************************************************/
+  //make
+  //Creates an element and assigns attributes css classes and 
+  make: function make(tagName, objAttributes, objEvents, elAppendTo){
+    var el = _.isElement(tagName) ? tagName : _ce(tagName);
+    /*
+    if(!elAppendTo){
+      setData(el, '_ddpDetached', true); //serious thought should be put into whether this line should be left in...
+    }
+    */
+    if(objAttributes){
+      _.forOwnIn(objAttributes, function(k, v){
+        var lowerK = k.toLowerCase();
+        if(lowerK == 'classname' || lowerK == 'class'){
+          _.dom.addClass(el, v);
         }
         else{
-          arReturn.push(false);
+          el.setAttribute(k, v);
         }
-      }
-    
-      return (arReturn.length==1) ? arReturn[0] : arReturn;
-    },
-    
-    /***************************************************************/
-    //make
-    //Creates an element and assigns attributes css classes and 
-    "make": function make(tagName, objAttributes, objEvents, elAppendTo){
-      var el = _.isElement(tagName) ? tagName : _ce(tagName);
-      /*
-      if(!elAppendTo){
-        setData(el, '_ddpDetached', true); //serious thought should be put into whether this line should be left in...
-      }
-      */
-      if(objAttributes){
-        _.forOwnIn(objAttributes, function(k, v){
-          var lowerK = k.toLowerCase();
-          if(lowerK == 'classname' || lowerK == 'class'){
-            _.dom.addClass(el, v);
-          }
-          else{
-            el.setAttribute(k, v);
-          }
-        });
-      }
-      if(objEvents){
-        _.forOwnIn(objEvents, function(k, v){ ddp.f.addEvent(el, k, v); });
-      }
-      if(elAppendTo){
-        appendElement(el, elAppendTo);
-      }
-      return el;
+      });
     }
-  });
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  /*-----------------------------------------------*/
-  /*-----------------COLLECTION--------------------*/
-  /*-----------------------------------------------*/
-  _.classes.Collection = function(){
-    this.length = 0;
-    _push.apply(this, arguments);
-  };
-  _.classes.Collection.prototype = {
-    "constructor": _.classes.Collection,
-    "push"       : _push,
-    "splice"     : _splice,
-    "every"      : _every,
-    "indexOf"    : _indexOf,
-    "toString"   : function toString(){    return '[object CruxCollection]';                    },
-    "first"      : function first(){       return this.index(0);                                },
-    "last"       : function last(){        return this.index(this.length-1);                    },
-    "contains"   : function contains(){    return !!(_indexOf.call(ar, val) + 1);               },
-    "empty"      : function empty(){       return this.setLength(0);                            },
-    "toArray"    : function toArray(){     return _.toArray(this);                              },
-    "unique"     : function unique(copy){  return _.unique(this, copy);                         },
-    "forEach"    : function forEach(){     _forEach.apply(this, arguments);  return this;       },
-    "augment"    : function augment(obj){  _.augment(this.constructor, obj); return this;       },
-    "add"        : function add(){         _push.apply(this, arguments);     return this;       },
-    "filter"     : function filter(fn){    return new this.constructor(_filter.call(this, fn)); },
-    "subclass"   : function(obj){          return _.subclass(this.constructor, obj);            },
-    "merge"      : function merge(){       return _.merge.apply(this, _.toArray([this], arguments));    },
-    "DOMElements": function DOMElements(){ return this.filter(function(v){ return _.isElement(v); });   },
-    "index": function index(ind){ return new this.constructor((ind < this.length ? this[ind] : null), this.selectionContext); },
-    "setLength": function setLength(newLength){
-      var i = this.length;
-      newLength -= 1;
-      while(i > newLength){
-        this[i] = undefined;
-        delete this[i--];
-      } 
-      this.length = newLength + 1;
-      return this;
+    if(objEvents){
+      _.forOwnIn(objEvents, function(k, v){ ddp.f.addEvent(el, k, v); });
     }
-  };
-  
-  
-  
-  
-  
-  /*-----------------------------------------------*/
-  /*----------------DOM SELECTION------------------*/
-  /*-----------------------------------------------*/
-  
-  _.classes.DOMSelection = _.subclass(
-    _.classes.Collection,
-    {
-      "toString" : function(){ return '[object CruxDOMSelection]'; },
-      
-      "init": function(selector, context){
-        this.length = 0;
-        this.selectionContext = (context && this.resolve(context, document)[0]) || document;
-        arguments.length && this.add.apply(this, arguments);
-      },
+    if(elAppendTo){
+      appendElement(el, elAppendTo);
+    }
+    return el;
+  }
+});
 
-      "add": function(selector, context){
-        var arg, sc = context && this.resolve(context, document)[0] || this.selectionContext;
-        //if there was no valid selector supplied, don't resolve it or call unique()
-        if(!selector){ return this; }
-        
-        selector = _.isArray(selector) || selector instanceof _.classes.DOMSelection ? selector : [selector];
-        for(var i=0, l=selector.length; i<l; i++){
-          arg = selector[i];
-          if(_.isString(arg)){
-            this.merge(this.resolve(arg, sc));
-          }
-          else if(_.isElement(arg)){
-            this.push(arg);
-          }
-        }
-        //remove duplicates
-        return this.unique();
-      },
-      
-      "merge": function merge(obj){
-        //apply the merge method we're overriding, then call unique() to remove duplicates
-        return this.parentConstructor.prototype.merge.apply(this, arguments).unique();
-      },
+
+//-----------------------------------------------
+//-----------------CRUX OBJECT-------------------
+//-----------------------------------------------
+var CruxObject = function CruxObject(){};
+//CruxObject.subclass = function(obj, name){ return (new CruxObject).subclass.apply(this, arguments); };
+CruxObject.prototype = {
+  constructor : CruxObject,
+  _super      : Object,
+  toString    : function toString(){     return '[object '+(this.className || 'Object')+']';              },
+  augment     : function augment(obj){   _.extend(this.constructor.prototype, obj); return this;          },
+  mergeIndexes: function mergeIndexes(){ return _.mergeIndexes.apply(this, _.toArray([this], arguments)); },
+  subclass    : function subclass(obj, name){
+    name = name || (obj ? obj.className : null) || this.className || '';
+    //Create a function using the Function constructor so we can name the inner returned function with the className
+    //Within the returned function, execute the default constructor in the context of the new object.
+    //If the subclass has or inherited an init method, execute it with any arguments passed to this consructor
+    var sub = Function('return function ' + name + '(){ arguments.callee.__parentContructor__.call(this); this.init && this.init.apply(this, arguments);}')();
+    sub.prototype = _.extend(this, obj);
+    this.className = name;
+    this._super = sub.__parentContructor__ = this.constructor;
+    this._super.subclasses = (this._super.subclasses ? this._super.subclasses.push(sub): [sub]) 
+    return this.constructor = sub;
+  }
+};
+
+//-----------------------------------------------
+//-----------------COLLECTION--------------------
+//-----------------------------------------------
+var Collection = (new CruxObject).subclass({
+  className  : 'Collection',
+  init: function(){
+    this.length = 0;
+    arguments && _push.apply(this, arguments);
+  },
+  push       : _push,
+  splice     : _splice,
+  every      : _every,
+  indexOf    : _indexOf,
+  toArray    : function toArray(){     return _.toArray(this);                              },
+  first      : function first(){       return this.index(0);                                },
+  last       : function last(){        return this.index(this.length-1);                    },
+  contains   : function contains(){    return !!(_indexOf.call(ar, val) + 1);               },
+  empty      : function empty(){       return this.setLength(0);                            },
+  unique     : function unique(copy){  return _.unique(this, copy);                         },
+  forEach    : function forEach(){     _forEach.apply(this, arguments);  return this;       },
+  add        : function add(){         _push.apply(this, arguments);     return this;       },
+  filter     : function filter(fn){    return new this.constructor(_filter.call(this, fn)); },
+  DOMElements: function DOMElements(allowDocument){ return this.filter(function(v){ return _.isElement(v, allowDocument); }); },
+  index: function index(ind){ return new this.constructor((ind < this.length ? this[ind] : null), this.selectionContext); },
+  setLength: function setLength(newLength){
+    var i = this.length;
+    newLength -= 1;
+    while(i > newLength){
+      this[i] = undefined;
+      delete this[i--];
+    }
+    this.length = newLength + 1;
+    return this;
+  }
+});
+
+
+//-----------------------------------------------
+//----------------DOM SELECTION------------------
+//-----------------------------------------------
+
+var DOMSelection = _.DOMSelection = (new Collection).subclass({
+  className : 'DOMSelection',
   
-      "drop": function drop(selector){
-        var ar = (_.dom.selectorEngine_matches || Sizzle.matches)(selector, this), i = ar.length;
-        while(i--){ this.splice(this.indexOf(ar[i]), 1); }
-        return this;
-      },
-      
-      "wait": function wait(msec, fn, data){
-        var ts = this;
-        window.setTimeout(function(){ fn.call(ts, data); ts = null; }, msec);
-        return this;
-      },
-      
-      "append": function append(parent){
-      	var df;
-      	if(this.length){
-          parent = _.isString(parent) ? this.resolve(parent, document)[0] : parent;
-          df = document.createDocumentFragment();
-          this.DOMElements().forEach(function(el){ df.appendChild(el); });
-          parent.appendChild(df);
-        }
-        return this;
-      },
-      
-      "resolve"       : function resolve(selector, context, ar){
-        //optimise for the case when we're just passing a single element back and forth
-        if(_.isElement(selector) && !ar && !context){ return [selector]; }
-        //run the selector through Sizzle or other dom selector library
-        return _.dom.selectorEngine(selector, context, ar);
-      },
-      
-      "find"          : function find(selector){ return new this.constructor(_.dom.selectorEngine_matches(this, selector), this.selectionContext); },
-      "remove"        : function remove(){ this.DOMElements().forEach(function(el){ el && el.parentNode && el.parentNode.removeChild(el); }); return this; },
-      "addClass"      : function addClass(str){    return _.dom.addClass(this, str);    },
-      "removeClass"   : function removeClass(str){ return _.dom.removeClass(this, str); },
-      "show"          : function show(){ this.DOMElements().forEach(function(el){ el.style.display = ''; return this;});     },
-      "hide"          : function hide(){ this.DOMElements().forEach(function(el){ el.style.display = 'none'; return this;}); },
-      "climb"         : function climb(fn){ return this.DOMElements().every(function(el){ return _.dom.climb(el, fn); }); },      
-      //***************************************************************
-      //childrenOf 
-      //returns a new DOMCollection of elements that are DOM descendents of the supplied parent element
-      "childrenOf": function childrenOf(parent, jumpIframes){
-      	return this.DOMElements().filter(function(el){ return _.dom.childOf(el, parent, jumpIframes); });
-        //return elements.length ? elements.every(function(el){ return _.dom.childOf(el, parent, jumpIframes); }) : false;
-      },
-      
-      
-      "debug": function(str){
-        try{ console.log((new Date).getTime() + ': ' + (str || '')); }
-        catch(e){}
-        this.forEach(function(el){ try{console.log(el);} catch(e){} });
-        return this;
+  init: function(selector, context){
+    this.length = 0;
+    this.selectionContext = (context && this.resolve(context, document)[0]) || document;
+    arguments.length && this.add.apply(this, arguments);
+  },
+  
+  add: function(selector, context){
+    var arg, sc = context && this.resolve(context, document)[0] || this.selectionContext;
+    //if there was no valid selector supplied, don't resolve it or call unique()
+    if(!selector){ return this; }
+    
+    selector = _.isArray(selector) || selector instanceof DOMSelection ? selector : [selector];
+    for(var i=0, l=selector.length; i<l; i++){
+      arg = selector[i];
+      if(_.isString(arg)){
+        //true indicates that the mergeing process should not introduce any duplicates.
+        this.mergeIndexes(this.resolve(arg, sc), true);
+      }
+      else if(_.isElement(arg)){
+        this.push(arg);
       }
     }
-  );
+    //remove duplicates
+    return this.unique();
+  },
+
+  drop: function drop(selector){
+    var ar = _.dom.selectorEngine_matches(selector, this), i = ar.length;
+    while(i--){ this.splice(this.indexOf(ar[i]), 1); }
+    return this;
+  },
   
+  wait: function wait(msec, fn, data){
+    var ts = this;
+    window.setTimeout(function(){ fn.call(ts, data); ts = null; }, msec);
+    return this;
+  },
+  
+  append: function append(parent){
+  	var df;
+  	if(this.length){
+      parent = _.isString(parent) ? this.resolve(parent, document)[0] : parent;
+      df = document.createDocumentFragment();
+      this.DOMElements().forEach(function(el){ df.appendChild(el); });
+      parent.appendChild(df);
+    }
+    return this;
+  },
+  
+  resolve: function resolve(selector, context, ar){
+    //optimise for the case when we're just passing a single element
+    if(_.isElement(selector) && !ar && !context){ return [selector]; }
+    //run the selector through Sizzle or other dom selector library
+    return _.dom.selectorEngine(selector, context, ar);
+  },
+  
+  find          : function find(selector){ return new this.constructor(_.dom.selectorEngine_matches(this, selector), this.selectionContext); },
+  remove        : function remove(){ this.DOMElements().forEach(function(el){ el && el.parentNode && el.parentNode.removeChild(el); }); return this; },
+  addClass      : function addClass(str){    return _.dom.addClass(this, str);    },
+  removeClass   : function removeClass(str){ return _.dom.removeClass(this, str); },
+  show          : function show(){ this.DOMElements().forEach(function(el){ el.style.display = ''; return this;});     },
+  hide          : function hide(){ this.DOMElements().forEach(function(el){ el.style.display = 'none'; return this;}); },
+  climb         : function climb(fn){ return this.DOMElements().every(function(el){ return _.dom.climb(el, fn); }); },      
+  //***************************************************************
+  //childrenOf 
+  //returns a new DOMCollection of elements that are DOM descendents of the supplied parent element
+  childrenOf: function childrenOf(parent, jumpIframes){
+  	return this.DOMElements().filter(function(el){ return _.dom.childOf(el, parent, jumpIframes); });
+    //return elements.length ? elements.every(function(el){ return _.dom.childOf(el, parent, jumpIframes); }) : false;
+  },
+  
+  debug: function(str){
+    try{
+      console.log((new Date).getTime() + ': ' + (str || ''));
+      this.forEach(function(el){ console.log(el); });
+    }
+    catch(e){}
+    return this;
+  }
+});
+
 
 
 //export to the externalName
-window[_externalName] = _;
+_.Object = CruxObject;
+_.Collection = Collection;
+_.DOMSelection = DOMSelection;
 
 
 
