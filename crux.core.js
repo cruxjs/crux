@@ -250,25 +250,6 @@ var _ = window[_externalName] = {
     return p;
   },
   
-  /***************************************************************/
-  //forOwnIn
-  //iterates over an object's own properties only
-  //e.g.
-  //var obj = {"inheritedProperty": true};
-  //var obj2 = newObjectFrom(obj);
-  //obj2.obj2sProperty = 'greg';
-  //ddp.f.forOwnIn(obj2, function(key, value, object){
-  //  console.log('the value of property "' + key + '" is: ' + value);
-  //});
-  //will output only "obj2sProperty is: greg" and NOT "inheritedProperty is: true"
-  forOwnIn: function forOwnIn(obj, fn){
-    if(!obj || !fn || !_hasOwnProperty){ return false; }
-    for(var key in obj){
-      if(_hasOwnProperty.call(obj, key) && fn(key, obj[key], obj) === false){ return false; }
-    }
-    return true;
-  },
-  
   
   //***************************************************************
   //dom
@@ -405,12 +386,13 @@ var _ = window[_externalName] = {
   //a length property instead of an array.
   unique: function unique(ar, copy, start){
     var newAr, tmp, i = ar.length;
+    start = start || 0;
     //if the copy flag is truthy,
     if(copy){
       //create a new array so we don't affect the original
       newAr = [];
       //iterate through the original array backwards
-      while(i--){
+      while(i > start){
         //if the value from the original array is not in the new array
         if(_indexOf.call(newAr, tmp = ar[i], start) == -1){
           //tack it to the beginning of the array
@@ -420,7 +402,7 @@ var _ = window[_externalName] = {
       return newAr;
     }
     //change the original array
-    while(i--){
+    while(i > start){
       //if occurs at another index in the array (searched from front)
       if(_indexOf.call(ar, ar[i], start) !== i){
         //remove the element at this index (at the back of the array)
@@ -445,8 +427,11 @@ var _ = window[_externalName] = {
   //getData
   //
   getData: function getData(obj, key){
-    var cache  = obj.__cruxData__ || (obj.__cruxGUID__ && _cache.elementData[obj.__cruxGUID__]) || undefined;
-    return (!key && cache) || (cache && _hasOwnProperty.call(cache, key) ? cache[key] : undefined);
+    //get a ref to the object where the data is stored
+    //(for non-elements it's just on the object itself, otherwise it in out element data cache)
+    var cache  = obj.__cruxData__ || (obj.__cruxGUID__ && _cache.elementData[obj.__cruxGUID__]);
+    //return the data by it's key or the whoel object if the key was undefined
+    return (!key && cache) || ((cache && _hasOwnProperty.call(cache, key)) ? cache[key] : undefined);
   },
   
   
