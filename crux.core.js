@@ -238,16 +238,13 @@ var _ = window[_externalName] = {
   //    lastValue("am.a.property", i); //returns 'yep'
   //    lastValue("am.potatosalad.property", i); //returns undefined (since potatosalad is undefined)
   lastValue: function lastValue(chain, root){
-    var ar = chain.split('.'),
-        //if a second argument was passed, use it, even if the value is undefined
-        p = arguments.length == 2 ? root : window;
-    
-    for(var i=0, l=ar.length; i<l; p = p[ar[i++]]){
-      //if it's undefined or null (with type coercion, null == undefined)
-      if(p == undefined){ return; }
-    }
+    //if a second argument was passed, use it, even if the value is undefined
+    var v = arguments.length == 2 ? root : window, ar = chain.split('.');
+    //iterate over the properties in the chain and stop if the value is 
+    //undefined or null (with type coercion, null == undefined)
+    for(var i=0, l=ar.length; i<l && v != null; v = v[ar[i++]]){}
     //return the last property even if it's undefined
-    return p;
+    return v;
   },
   
   
@@ -267,13 +264,12 @@ var _ = window[_externalName] = {
         j, jl;
     for(j = 1, jl = arguments.length; j<jl; objAdd = arguments[++j]){
       if(objAdd && objAdd.length){
-        if(_detected.sliceNodeLists || (oia && _.isArray(objAdd))){
+        if(!unique && (_detected.sliceNodeLists || (oia && _.isArray(objAdd)))){
           //console.log([obj.length,0].concat(_slice.call(objAdd, 0)));
           _splice.apply(obj, [obj.length,0].concat(_.isArray(objAdd) ? objAdd : _slice.call(objAdd, 0)));
-          unique && _.unique(obj, false, obj.length-objAdd.length);
         }
         else{
-          //TODO: add check for DOMElements (they have a length but to indexes)
+          //TODO: add check for DOMElements (they have a length but no indexes)
           for(var i=0, l=objAdd.length; i<l; i++){
             if(!unique || _indexOf.call(obj, objAdd[i]) < 0){
               _push.call(obj, objAdd[i]);
@@ -288,19 +284,24 @@ var _ = window[_externalName] = {
   
   /***************************************************************/
   //clone
-  //makes a "copy" of the object passed to it. (actually creates a new object and copies the old object's properties into it)
+  //makes a "copy" of the object passed to it.(creates a new object with the passed object's constructor and copies properties into it)
   //optional parameter "allProperties", if set to true, copies properties inherited through it's prototype
   //deep clone also clones the properties of the object that are objects as well (with cyclical references, this can cause an issue)
-  clone: function clone(obj, deep, inherit){
-    var cloned = new obj.constructor;
+  clone: function clone(obj, deep, constructor){
+    var cloned, key;
+    //obj == null also matches obj === undefined through type coersion
+    if(obj == null || typeof obj !== 'object'){ return; }
+    if(_.isElement(obj)){ return _.dom.cloneElement.apply(this, arguments); }
+    constructor && (cloned = new (constructor === true ? (obj.constructor || Object) : constructor));
+    cloned = cloned || {};
     clone.depth = (clone.depth === undefined) ? 0 : clone.depth;
     deep = (deep === true ? MAX_CLONE_DEPTH : Math.min(deep, MAX_CLONE_DEPTH)) || 0;
     //iterate through the object's properties
-    for(var key in obj){
+    for(key in obj){
       //check to see if the property in question belongs to the object
       //if it doesn't, skip over this property
       if(_hasOwnProperty.call(obj, key)){
-        //if it's not an "unknown" (ie6-8) type (happens with some native and activeX object)
+        //if it's not an "unknown" type (happens with some native and activeX objects in ie < 8)
         if(typeof obj[key] !== 'unknown'){
           if(clone.depth < deep && _.isObject(obj[key])){
             //if(){ throw 'clone depth exceeds maximum. you can haz infinite loop?'; }
@@ -325,12 +326,42 @@ var _ = window[_externalName] = {
   },
   
   
+  //TODO: determin if regular objects with handlers will have their events cloned properly
+  //if so, move this method into the crux.dom namespace
+  cloneListeners: function cloneListeners(source, dest, deep){
+    var v = _.clone(_.getData(source, '__listeners__'), 2),
+        sc = source.children,
+        dc = dest.children;
+        
+    if(deep && sc && dc){
+      var i = sc.length;
+      //make sure the elements have the same number of children
+      if(i == dc.length){
+        while(i-- && sc[i] && cd[i]){
+          cloneListeners(sc[i], cd[i], true);
+        }
+      }
+    }
+    if(_.isElement(dest, true) || dest == window){
+      for(var key in v){
+        if(_hasOwnProperty.call(v, key)){
+          v[key].__eventModel__ = null;
+          //set up each event type
+          _.listen(dest, key, function(){});
+        }
+      }
+    }
+    //this will overwrite the listeners added above but maintain the main trigger DOM listener
+    return _.setData(dest, '__listeners__', v);
+  },
+  
+  
   /***************************************************************/
   //toArray 
   //takes an object with 'length' property and returns an actual array
   //(useful for 'arguments' and objects returned from getElementsByTagName(), etc..)
   toArray : _detected.sliceNodeLists ?
-    //this approach won't work on DOM nodelists under ie6 (throws a "Jscript object expected" error) 
+    //this approach won't work on DOM nodelists under ie8 (throws a "Jscript object expected" error) 
     function toArray(obj1, obj2, obj3){
       //iterate over the function's arguments
       for(var ar=[], i=0, l=arguments.length, obj=arguments[0]; i<l; obj=arguments[++i]){
@@ -392,9 +423,9 @@ var _ = window[_externalName] = {
       //create a new array so we don't affect the original
       newAr = [];
       //iterate through the original array backwards
-      while(i > start){
+      while(i-- > start){
         //if the value from the original array is not in the new array
-        if(_indexOf.call(newAr, tmp = ar[i], start) == -1){
+        if(_indexOf.call(newAr, tmp = ar[i]) == -1){
           //tack it to the beginning of the array
           _splice.call(newAr, 0, 0, tmp);
         }
@@ -402,9 +433,9 @@ var _ = window[_externalName] = {
       return newAr;
     }
     //change the original array
-    while(i > start){
+    while(i-- > start){
       //if occurs at another index in the array (searched from front)
-      if(_indexOf.call(ar, ar[i], start) !== i){
+      if(_indexOf.call(ar, ar[i]) !== i){
         //remove the element at this index (at the back of the array)
         _splice.call(ar, i, 1);
       }
@@ -634,7 +665,7 @@ var _ = window[_externalName] = {
       return null;
     }
   
-  
+    /*
     //emulate events that are in "ddpEmulatedEvents" if the browser doesn't support them
     if(ddpEmulatedEvents[type] && !target['ddpEmulated_' + type] && !isEventSupported(type, target)){
       //mark the element as having the emulation set up (so we don't try to do it again)
@@ -653,6 +684,7 @@ var _ = window[_externalName] = {
       //add the handler that performs the emulation to the event that can be used to trigger the emulation
       listen(ddpEmulatedEvents[type].attachToElement || target, ddpEmulatedEvents[type].attachToEvent, function(objEvent){ return ddpEmulatedEvents[type].fn && ddpEmulatedEvents[type].fn.call(target, objEvent); });
     }
+    */
     
     //if this is a one-time event (such as window 'load'), and it has already been fired,  
     //if(getData(target, 'ddpOneTimeEvent_' + type) && getData(target, 'ddpOneTimeEvent_' + type + '_fired') && !forceAddOTE){
@@ -693,7 +725,7 @@ var _ = window[_externalName] = {
     
     
     //get the current listener container or create a new one
-    listenerContainer = _.getData(target, 'ddp_listeners') || _.setData(target, 'ddp_listeners', {});
+    listenerContainer = _.getData(target, '__listeners__') || _.setData(target, '__listeners__', {});
     
     //get the listeners array if it exists and check if it's an array, if it's not then
     if(!_.isArray(listeners = listenerContainer[type])){
@@ -701,6 +733,7 @@ var _ = window[_externalName] = {
       listeners = listenerContainer[type] = [fn];
     }
     //if there are no listeners in the array or the new listener isn't present in the array
+    //TODO: figure out if we need to add a listener for each namespace
     else if(listeners.length == 0 || !listeners.some(function(fn){ return fn.innerFn == handler; })){
       //just push the listener onto the end of the array
       listeners.push(fn);
@@ -714,17 +747,17 @@ var _ = window[_externalName] = {
     //w3c standard browsers
     //add the event listener. specify false for the last argument to use the bubbling phase (to mirror IE's limitation to only bubble)
     //(if the addEventListener method returns false, move to the next event model)
-    if(target.addEventListener && (listeners.ddpEventModel === 1 || !listeners.ddpEventModel) && target.addEventListener(type, fn, false) !== false){
+    if(target.addEventListener && (listeners.__eventModel__ === 1 || !listeners.__eventModel__) && target.addEventListener(type, fn, false) !== false){
       //return the event model used to add the event handler
-      listeners.ddpEventModel = 1;
+      listeners.__eventModel__ = 1;
     }
     //Internet Explorer
     //typeof target['on' + type] != 'undefined' &&
-    else if(target.attachEvent && (listeners.ddpEventModel === 2 || !listeners.ddpEventModel) && _.isEventSupported(type, target)){
+    else if(target.attachEvent && (listeners.__eventModel__ === 2 || !listeners.__eventModel__) && _.isEventSupported(type, target)){
       //attach the event using the IE event model (bubble only)
       target.attachEvent('on' + type, fn);
       //if it's the first time a handler has been added
-      if(!listeners.ddpEventModel){
+      if(!listeners.__eventModel__){
         //add a handler to the window onunload event so that we can detach this event when the window unloads
         //(try to relase event handler memory on old IEs)
         window.attachEvent('onunload', function(){
@@ -739,7 +772,7 @@ var _ = window[_externalName] = {
           }
         });
         //return the event model used to add the event handler
-        listeners.ddpEventModel = 2;
+        listeners.__eventModel__ = 2;
       }
     }
     //if nothing has worked yet... fallback to the AERM method
@@ -759,11 +792,11 @@ var _ = window[_externalName] = {
         }
       }
       //record the event model used to attach the listener
-      listeners.ddpEventModel = 3;
+      listeners.__eventModel__ = 3;
     }
     
     //return the event model that was used to attach the handler
-    return listeners.ddpEventModel;
+    return listeners.__eventModel__;
   },
   
   
@@ -791,7 +824,7 @@ var _ = window[_externalName] = {
       return s;
     },
     
-    pad    : function pad(str, length, padWith, onRight){
+    pad: function pad(str, length, padWith, onRight){
       padWith = padWith || '0';
       if((length = Math.max(length, 0)) == 0){ return ''; }
       if(str.length >= length){ return onRight ? _.str.right(str, length) : _.str.left(str, length); }
@@ -801,6 +834,7 @@ var _ = window[_externalName] = {
       return onRight ? str + _.str.right(s, length-str.length) : _.str.left(s, length-str.length) + str;
     },
     
+    //check and see if the built-in String.prototype.trim exists
     trim: _trim ? function(str){ return _trim.call(str); } : function(str){
       str += ''; //convert to string
       //http://blog.stevenlevithan.com/archives/faster-trim-javascript, trim12
@@ -972,6 +1006,7 @@ _.extend(_.dom, {
   //we can't assign this until Sizzle is instanciated at the end of this file 
   selectorEngine: null, //by default will be Sizzle()
   selectorEngine_matches: null, //by default will be Sizzle.matches()
+  
   //***************************************************************
   //childOf 
   //returns true if all elements in the collection are DOM descendents of the supplied dom element, otherwise returns false.
@@ -987,10 +1022,22 @@ _.extend(_.dom, {
     }
     //Firefox
     if(elChild.compareDocumentPosition){
-      return Boolean(elParent.compareDocumentPosition(elChild) & 16); //single & is the bitwise AND operator, not a typo (compareDocumentPosition returns a bitmask).
+      return !!(elParent.compareDocumentPosition(elChild) & 16); //single & is the bitwise AND operator, not a typo (compareDocumentPosition returns a bitmask).
     }
     //fallback to calculating it ourselves
     return (_.dom.climb(elChild, function(nodes, elParent){ if(this==elParent) return true; }, [elParent], blnBridgeIframes) === true);
+  },
+  
+  //***************************************************************
+  //cloneElement
+  //
+  cloneElement: function(el, deep, listeners){
+    var e = el.cloneNode(deep || false);
+    //TODO: make element cloning actually work
+    //apply all the fixes to compensate for browser deficiencies (ie, i'm looking at you)
+    //copy event handlers to the new element (if specified) 
+    listeners && _.cloneListeners(el, e, deep);
+    return e;
   },
   
   //***************************************************************
