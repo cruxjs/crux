@@ -18,20 +18,25 @@ var undefined,
     _concat   = Array.prototype.concat,
     _slice    = Array.prototype.slice,
     _splice   = Array.prototype.splice,
+    
+    //-------------------------------------
+    //objects to house our main modules 
+    _events   = {},
+    _str      = {},
+    _ajax     = {},
     _config   = {
       "classRECaching" : true
     },
     _cache    = {
       "elementData": {}
     },
-    _externalName = 'crux',
-    _guidCounter =  0,
+    
+    _externalName   = 'crux',
+    _guidCounter    =  0,
     _hasOwnProperty = Object.prototype.hasOwnProperty,
     _toString       = Object.prototype.toString,
-    
     MAX_CLONE_DEPTH = 10;
     
-
 
 
 /***************************************************************/
@@ -133,6 +138,7 @@ var _every    = Array.prototype.every,
     _forEach  = Array.prototype.forEach,
     _filter   = Array.prototype.filter,
     _indexOf  = Array.prototype.indexOf,
+    
     //TODO: so far unused, remove if we don't end up using them in the core module
     _unshift  = Array.prototype.unshift,
     _lastIndexOf = Array.prototype.lastIndexOf;
@@ -142,15 +148,16 @@ var _every    = Array.prototype.every,
 // detect a bunch of browser inconsistencies, for later use in the library core
 //-------------------------------------------------------------------------------
 var _detected = {
-  "stringIndexes"    : "d"[0] == "d", //test if the browser supports accessing characters of a string using this notation: str[3]
+  docElement : document.documentElement,
+  stringIndexes    : "d"[0] == "d", //test if the browser supports accessing characters of a string using this notation: str[3]
   //test if Array.prototype.slice can be used on DOMNodeLists 
   //(IE<9 craps out when you try "slice()"ing a nodelist)
-  "sliceNodeLists" : !!(function(){
+  sliceNodeLists : !!(function(){
     try{ return _slice.call(document.documentElement.children, 0); }
     catch(e){}
   })(),
   //detect the 
-  "CSSClassAttribute": (function(){
+  CSSClassAttribute : (function(){
     //create an element to test which attribute contains the actual CSS class string
     var el = _ce('div');
     el.innerHTML = '<p class="X"></p>';
@@ -158,9 +165,9 @@ var _detected = {
   })(),
   
   //create an element to test if the styleFloat property is not undefined
-  "floatProperty": (function(){ return (_ce('div').style.styleFloat !== undefined) ? 'styleFloat' : 'cssFloat'; })(),
+  floatProperty: (function(){ return (_ce('div').style.styleFloat !== undefined) ? 'styleFloat' : 'cssFloat'; })(),
   
-  "customEventsModule": (function(){
+  customEventsModule: (function(){
     try{ document.createEvent('CustomEvent'); return 'CustomEvent'; }
     catch(e){ return 'HTMLEvents'; }
   })()
@@ -172,6 +179,10 @@ var _ = window[_externalName] = {
   version  : _version,
   config   : _config,
   detected : _detected,
+  events   : _events,
+  str      : _str,
+  ajax     : _ajax,
+
   
   //***************************************************************
   //data type tests
@@ -290,7 +301,7 @@ var _ = window[_externalName] = {
   clone: function clone(obj, deep, constructor){
     var cloned, key;
     //obj == null also matches obj === undefined through type coersion
-    if(obj == null || typeof obj !== 'object'){ return; }
+    if(obj == null || typeof obj !== 'object'){ return obj; }
     if(_.isElement(obj)){ return _.dom.cloneElement.apply(this, arguments); }
     constructor && (cloned = new (constructor === true ? (obj.constructor || Object) : constructor));
     cloned = cloned || {};
@@ -323,36 +334,6 @@ var _ = window[_externalName] = {
     }
     //return the new object
     return cloned;
-  },
-  
-  
-  //TODO: determin if regular objects with handlers will have their events cloned properly
-  //if so, move this method into the crux.dom namespace
-  cloneListeners: function cloneListeners(source, dest, deep){
-    var v = _.clone(_.getData(source, '__listeners__'), 2),
-        sc = source.children,
-        dc = dest.children;
-        
-    if(deep && sc && dc){
-      var i = sc.length;
-      //make sure the elements have the same number of children
-      if(i == dc.length){
-        while(i-- && sc[i] && cd[i]){
-          cloneListeners(sc[i], cd[i], true);
-        }
-      }
-    }
-    if(_.isElement(dest, true) || dest == window){
-      for(var key in v){
-        if(_hasOwnProperty.call(v, key)){
-          v[key].__eventModel__ = null;
-          //set up each event type
-          _.listen(dest, key, function(){});
-        }
-      }
-    }
-    //this will overwrite the listeners added above but maintain the main trigger DOM listener
-    return _.setData(dest, '__listeners__', v);
   },
   
   
@@ -405,7 +386,7 @@ var _ = window[_externalName] = {
  
     
     
-    /***************************************************************/
+  //**************************************************************
   //unique
   //Removes duplicate values from an array.
   //
@@ -584,11 +565,22 @@ var _ = window[_externalName] = {
     };
   })(),
   
-  
-  
-  
-  
-  
+  //partial application (currying) helper
+  //careful. creates closures.
+  partial: function partial(fn){
+    var f = function partialized(){ return fn.apply(this, _.toArray(partialized.args, arguments)); };
+    f.args = _slice.call(arguments, 1);
+    f.original = fn;
+    return f;
+  },
+};
+
+
+
+//----------------------------------------------------------------------------------
+//EVENTS MODULE
+//----------------------------------------------------------------------------------
+_.extend(_events, {
   /***************************************************************/
   //addEvent
   listen: function listen(target, type, handler){
@@ -691,7 +683,7 @@ var _ = window[_externalName] = {
     if(_.getData(target, 'cruxOTE_' + type) && _.getData(target, 'cruxOTE_' + type + '_fired')){
       //then execute the event listener right away (using the event target as "this" and passing a new event object to it).
       //var obj = _createPlainEventObject(type);
-      var obj = _.getData(target, 'cruxOTE_' + type + '_eventObject');
+      var obj = _.getData(target, 'cruxOTE_' + type + '_object');
       //obj.target = target;
       //obj.currentTarget = target;
       handler.call(target, obj);
@@ -762,7 +754,7 @@ var _ = window[_externalName] = {
         //(try to relase event handler memory on old IEs)
         window.attachEvent('onunload', function(){
           //remove the listner container object and get a reference to it
-          var ar, listenerContainer = _.setData(target, 'ddp_listeners', undefined);
+          var ar, listenerContainer = _.setData(target, '__listeners__', undefined);
           //if there is an array for this event type
           if(listenerContainer && _.isArray(ar = listenerContainer[type])){
             //go through each handler and remove it
@@ -788,7 +780,7 @@ var _ = window[_externalName] = {
         //and if the 
         if(typeof fnOldStyleFunction == 'function'){
           //add the old manual style event handler (global namespace)
-          addEvent(target, type, fnOldStyleFunction);
+          listen(target, type, fnOldStyleFunction);
         }
       }
       //record the event model used to attach the listener
@@ -800,215 +792,502 @@ var _ = window[_externalName] = {
   },
   
   
-  //*****************************************************************************************************
-  // String manupulation module
-  //*****************************************************************************************************
-  str:{
-    isUpper: function isUpper(str){ return (str = str + '') == str.toUpperCase(); },
-    isLower: function isLower(str){ return (str = str + '') == str.toLowerCase(); },
-    right  : function right(str, length){ return (str + '').substr(str.length - Math.min(length, str.length)); },
-    left   : function left(str, length){ return (str + '').substr(0, length); },
-    escapeHTML: function escapeHTML(str){return (str +'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); },
-    unescapeHTML: function unescapeHTML(str){ return (str+'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&'); },
-    repeat : function repeat(str, times){
-      var s = '';
-      times = Math.max(times || 0, 0);
-      while(times){
-        //http://stackoverflow.com/questions/202605/repeat-string-javascript
-        //http://stackoverflow.com/users/345520/artistoex
-        //bitwise AND operator
-        if(times & 1){ s += str; }
-        times >>= 1; //bitwise shift and assignment operator equivalent to: times = times >> 1;
-        str += str;
+  modules : ['HTMLEvents', 'UIEvents', 'MouseEvents', 'MutationEvents'],
+    
+  typeHash : {
+    //HTMLEvents
+    'abort': 0,
+    'blur': 0,
+    'change': 0,
+    'error': 0,
+    'focus': 0,
+    'load': 0,
+    'reset': 0,
+    'resize': 0,
+    'scroll': 0,
+    'select': 0,
+    'submit': 0,
+    'unload': 0,
+    'beforeunload': 0,
+    
+    //UIEvents
+    'DOMActivate': 1,
+    'DOMFocusIn': 1,
+    'DOMFocusOut': 1,
+    'keydown': 1,
+    'keypress': 1,
+    'keyup': 1,
+    
+    //MouseEvents
+    'click': 2,
+    'dblclick': 2,
+    'mousedown': 2,
+    'mousemove': 2,
+    'mouseout': 2,
+    'mouseover': 2,
+    'mouseup': 2,
+    'mouseenter': 2, //ie only
+    'mouseleave': 2, //ie only
+    
+    //MutationEvents
+    'DOMAttrModified': 3,
+    'DOMNodeInserted': 3,
+    'DOMNodeRemoved': 3,
+    'DOMCharacterDataModified': 3,
+    'DOMNodeInsertedIntoDocument': 3,
+    'DOMNodeRemovedFromDocument': 3,
+    'DOMSubtreeModified': 3
+  },
+  
+  //------------------------------------------------------------------------------------------
+  //_eventModule
+  //used internally to detect the type of browser event to create when manually firing events
+  //types can be added from outside this scope like so:
+  //  crux.events._eventModule.typeHash.newMutationEvent = 3; 
+  //------------------------------------------------------------------------------------------
+  _eventModule: function _eventModule(type){
+    var modules  = _events.modules,
+        typeHash = _events.typeHash;
+    //if the event type isn't in the "objEventTypeModuleIndex" object (hash table) 
+    //(also make sure it's the objects own property and not somone augmenting the Object prototype)
+    //(the "CustomEvent" module is assigned when no other posibility is detected)
+    return _hasOwnProperty.call(typeHash, type) ? modules[typeHash[type]] : crux.detected.customEventsModule;
+  },
+  
+  //the function that will be called when the actual event is fired.
+  _executeListeners: function _executeListeners(evt){
+    var objEvent = evt || window.event,
+        elDocEl = document.documentElement,
+        target = (objEvent && objEvent.currentTarget) || this,
+        listenerContainer = _.getData(target, '__listeners__'),
+        fnTmp;
+  
+    //if the element has listeners
+    if(listenerContainer){
+      //take a copy of the handlers that were effective at the time the event was fired
+      var listeners = _.toArray(listenerContainer[objEvent.type]);
+      //execute the listeners in the order they were added
+      for(var i=0, l=listeners.length; i<l; i++){
+        _events.BEEP(listeners[i], [objEvent], target);
       }
-      return s;
-    },
-    
-    pad: function pad(str, length, padWith, onRight){
-      padWith = padWith || '0';
-      if((length = Math.max(length, 0)) == 0){ return ''; }
-      if(str.length >= length){ return onRight ? _.str.right(str, length) : _.str.left(str, length); }
-      //generate the repeated string to pad the passed one with
-      //(may be larger than the length required if "padWith" contains multiple characters)
-      var s = _.str.repeat(padWith, Math.max(Math.ceil(length/padWith.length) - str.length, 0));
-      return onRight ? str + _.str.right(s, length-str.length) : _.str.left(s, length-str.length) + str;
-    },
-    
-    //check and see if the built-in String.prototype.trim exists
-    trim: _trim ? function(str){ return _trim.call(str); } : function(str){
-      str += ''; //convert to string
-      //http://blog.stevenlevithan.com/archives/faster-trim-javascript, trim12
-      str = str.replace(/^\s\s*/, '');
-      var ws = /\s/, i = str.length;
-      while(ws.test(str.charAt(--i))){} //there is nothing within the braces. this is not a typo
-      return str.slice(0, i + 1);
-    },
-    
-    /***************************************************************/
-    //isValidString
-    //returns true if the supplied string matches the corresponding regular expression for the supplied format type
-    valid: function valid(str, formatType){
-      var reOrFn = _.str.formats[formatType];
-      if(reOrFn instanceof RegExp){ return reOrFn.test(str); }
-      if(_.isFunction(reOrFn))    { return reOrFn(str);      }
-      throw 'Invalid format type provided: "' + formatType + '". Inspect crux.str.formats for valid format types.';
-    },
-    
-    formats: {
-      email         : /^[A-Za-z0-9_\-\.]+@(([A-Za-z0-9\-])+\.)+([A-Za-z\-])+$/,
-      //TODO: Add partial string validation regexs for all formats
-      //      (stop user from entering invalid chars for the validation type)
-      email_partial : /^[A-Za-z0-9_\-\.@]+$/,
-      phone         : /^(\(?[0-9]{3}\)?)? ?\-?[0-9]{3}\-?[0-9]{4}$/,
-      number_dec    : /^-?\d+(\.\d+)?$/,
-      number_int    : /^-?\d+$/,
-      postalcode_ca : /^[abceghjklmnprstvxy][0-9][abceghjklmnprstvwxyz]\s?[0-9][abceghjklmnprstvwxyz][0-9]$/i,
-      postalcode_us : /^([0-9]{5})(?:[-\s]*([0-9]{4}))?$/,
-      postalcode_uk : /^([a-zA-Z]){1}([0-9][0-9]|[0-9]|[a-zA-Z][0-9][a-zA-Z]|[a-zA-Z][0-9][0-9]|[a-zA-Z][0-9]){1}([ ])([0-9][a-zA-z][a-zA-z]){1}$/,
-      filename      : /[^0-9a-zA-Z\._\(\)\+\-\!@#\$%\^&,`~\[\]{} ']/
-    },
-    
-    toCamel: function toCamel(str, changeFloat){
-      return (changeFloat && str == 'float')
-               ? _detected.floatProperty
-               : str.replace(toCamel.re || (toCamel.re = /\W+(.)/g), function(_, l){ return l.toUpperCase(); });
-               //: str.toLowerCase().replace(/-([a-z])/g, function (_, l) { return l.toUpperCase(); });
-    },
-    
-    toDashed: function toDashed(str, changeFloat){
-      return (changeFloat && str == 'styleFloat' || str == 'cssFloat')
-               ? 'float'
-               : str.replace(toDashed.re1 || (toDashed.re1 = /\W+/g), '-')
-                 .replace(toDashed.re2 || (toDashed.re2 = /([a-z\d])([A-Z])/g), '$1-$2')
-                 .toLowerCase();
-    },
-
-    parseUri: (function(){
-      // parseUri 1.2.2
-      // (c) Steven Levithan <stevenlevithan.com>
-      // MIT License
-      function parseUri(str, doc){
-       var relativeTo = (doc && doc.location) ? parseUri(doc.location.href) : (_.isString(doc) ? parseUri(doc) : null);
-           o   = parseUri.options,
-           m   = o.parser[(relativeTo || o.strictMode) ? "strict" : "loose"].exec(str),
-           uri = {},
-           i   = 14;
-      
-        while(i--){ uri[o.key[i]] = m[i] || ""; }
-      
-        uri[o.q.name] = {};
-        uri[o.key[12]].replace(o.q.parser, function ($0, $1, $2) {
-          if($1) uri[o.q.name][$1] = $2;
-        });
-        
-        if(relativeTo){
-          ["protocol","authority","userInfo","user","password","host","port"].forEach(function(s){ uri[s] = uri[s] || relativeTo[s]; });
-          ["relative","path","directory"].forEach(function(s){ uri[s] = (uri[s].charAt(0) == '/') ? uri[s] : relativeTo["directory"] + uri[s]; });
-        }
-        return uri;
-      }
-      parseUri.options = {
-        strictMode: false,
-        key: ["source","protocol","authority","userInfo","user","password","host","port","relative","path","directory","file","query","anchor"],
-        q:   {
-          name:   "queryKey",
-          parser: /(?:^|&)([^&=]*)=?([^&]*)/g
-        },
-        parser: {
-          strict: /^(?:([^:\/?#]+):)?(?:\/\/((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?))?((((?:[^?#\/]*\/)*)([^?#]*))(?:\?([^#]*))?(?:#(.*))?)/,
-          loose:  /^(?:(?![^:@]+:[^:@\/]*@)([^:\/?#.]+):)?(?:\/\/)?((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?)(((\/(?:[^?#](?![^?#\/]*\.[^?#\/.]+(?:[?#]|$)))*\/?)?([^?#\/]*))(?:\?([^#]*))?(?:#(.*))?)/
-        }
-      };
-      
-      return parseUri;
-    })(),
-    
-    cleanWordMarkup: function cleanWordMarkup(str){
-      // Remove unnecessary tag spans (comments and title)
-      str = str.replace(/\<\!--(\w|\W)+?--\>/gim, '');
-      str = str.replace(/\<title\>(\w|\W)+?\<\/title\>/gim, '');
-      // Remove all classes and styles
-      str = str.replace(/\s?class=\w+/gim, '');
-      str = str.replace(/\s+style=\'[^\']+\'/gim, '');
-      str = str.replace( /<(\w[^>]*) style="([^\"]*)"([^>]*)/gi, "<$1$3" ) ;
-      // Remove unnecessary tags
-      str = str.replace(/<(meta|link|\/?o:|\/?style|\/?font|\/?img|\/?h|\/?a|\/?script|\/?div|\/?st\d|\/?head|\/?html|body|\/?body|\/?span|!\[)[^>]*?>/gim, '');
-      // Remove underline tags
-      str = str.replace(/<\/?u>/gim,'');    
-      // Get rid of empty paragraph tags
-      str = str.replace(/(<[^>]+>)+&nbsp;(<\/\w+>)/gim, '');
-      // Remove bizarre v: element attached to <img> tag
-      str = str.replace(/\s+v:\w+=""[^""]+""/gim, '');
-      // Remove extra lines
-      str = str.replace(/"(\n\r){2,}/gim, '');
-      // Fix entites
-      str = str.replace("&ldquo;", "\"");
-      str = str.replace("&rdquo;", "\"");
-      str = str.replace("&mdash;", "â€“");
-      return str;
     }
     
-  }
+    //return the event return value
+    return objEvent.returnValue;
+  },
+  
+  
+  
+  
+  /***************************************************************/
+  //internal function for creating an event object, cross-browser wise
+  _createPlainEventObject: function _createPlainEventObject(type, props){
+    //will hold our new event object
+    var objEvent = _.clone(objEventProperties, false, Object);
+    //if the objEventProperties object was passed and contains a "cancelable" property which is false, then be false, otherwise true.
+    objEvent.cancelable = !!(objEvent.cancelable !== false);
+    objEvent.bubbles    = !(objEvent.bubbles !== true);
+    objEvent.type = type; //set the proper event type
+    //objEvent.target = elEventTarget;
+    objEvent.timeStamp = (new Date).getTime();
+    objEvent.eventModule = 'DDPPlainEvents';
+    objEvent.toString = function(){ return '[object DDPEvent]'; }
+    return objEvent;
+  },
+  
+  
+  /***************************************************************/
+  //internal function for creating an event object, cross-browser wise
+  _createBrowserEventObject: function _createBrowserEventObject(strEventType, objEventProperties){
+    var objEvent, //our new event object
+        ep = objEventProperties || {},
+        //detect if the event properties object supports the hasOwnProperty method
+        supportsHOP = !!ep.hasOwnProperty,
+        //if the objEventProperties object was passed and contains a "cancelable" property which is false, then be false, otherwise true. 
+        blnCancelable = ep.cancelable !== false,
+        blnBubbles    = ep.bubbles    !== false;
+    
+    //w3c standard browsers
+    if(document.createEvent){
+      ep.eventModule = _events._getEventModule(strEventType);
+      objEvent = document.createEvent(ep.eventModule); //create an event object using the proper event module (for FF anyway..)
+      
+      //use the appropriate event initializer according to the event module and
+      //whether or not the browser has implemented the initializer method
+      //if it's a mouse event
+      if(ep.eventModule == 'MouseEvents' && objEvent.initMouseEvent){
+        //use the mouse event initializer
+        objEvent.initMouseEvent(
+          strEventType, blnBubbles, blnCancelable, ep.view || window,
+          ep.detail || null, ep.screenX || 0, ep.screenY || 0, ep.clientX || 0, ep.clientY || 0,
+          ep.ctrlKey || 0, ep.altKey || 0, ep.shiftKey || 0, ep.metaKey || 0, ep.button || 0, ep.relatedTarget || null
+        );
+      }
+      else if(ep.eventModule == 'UIEvents' && objEvent.initUIEvent){
+        objEvent.initUIEvent(strEventType, blnBubbles, blnCancelable, ep.view || window, ep.detail || null);
+      }
+      else if(ep.eventModule == 'KeyboardEvent' && objEvent.initKeyEvent){
+       event.initKeyEvent(strEventType, blnBubbles, blnCancelable, ep.view || window, ep.ctrlKey, 
+                          ep.altKey, ep.shiftKey, ep.metaKey, ep.keyCode, ep.charCode);
+      }
+      //there may be issues with events from the MutationEvents Module. FF documentation is unclear on arguments
+      //to the initMutationEvent method and in the w3c spec DOM Mutation events have been deprecated in their current
+      //form due to performance issues. 
+      else if(ep.eventModule == 'MutationEvents' && objEvent.initMutationEvent){
+        objEvent.initMutationEvent(strEventType, blnBubbles, blnCancelable, ep.relatedNode, 
+                                   ep.prevValue, ep.newValue, ep.attrName, ep.attrChange);
+      }
+      else if(ep.eventModule == 'CustomEvent' && objEvent.initCustomEvent){
+        objEvent.initCustomEvent(strEventType, blnBubbles, blnCancelable, ep.detail);
+      }
+      else{
+        objEvent.initEvent(strEventType, blnBubbles, blnCancelable);
+      }
+    }
+    //the IE Event Model
+    else if(document.createEventObject){
+      objEvent = document.createEventObject(); //create an event object
+      objEvent.type = strEventType;            //set the proper event type
+      objEvent.cancelable = blnCancelable;     //set the cancelable property of the event object
+      objEvent.bubbles = blnBubbles;           //set the bubbles property of the event object
+    }
+    else{
+      //fallback to returning a plain ddp event object
+      return _events._createPlainEventObject(strEventType, objEventProperties);
+    }
+    
+    if(objEventProperties){
+      //iterate through the object's properties (no particular order)
+      for(var key in ep){
+        if( key != 'type' && key != 'cancelable'&& key != 'bubbles' && (!supportsHOP || ep.hasOwnProperty(key)) ){
+          try{
+            //i don't like doing this. it's unreliable to count on the event object allowing us to write to a property
+            objEvent[key] = ep[key]; //set the event object's property from the passed object's
+          }
+          catch(e){
+            //try{ console.log('native event object didn\'t like us writing to the "' + key + '" property'); } catch(e){}
+          }
+        }
+      }
+    }
+    
+    return objEvent;
+  },
+  
+  
+  //Browser Encapsulated Event Procedure
+  //executes a function within the context of a browser event. provides the ability 
+  BEEP: (function(){
+    var el = document.documentElement,
+        type = 'cruxBEEPEvent',
+        opc = "onpropertychange",
+        //event object, function to encapsulate, this, arguments, return value
+        w3cEvent, f, t, a, r;
+    //some fuctionality for allowing custom events to be executed within an actual browser event handler
+    //(allows for a less tragic result when errors are encountered within the event handlers)
+    if(el){
+      //w3c
+      if(el.addEventListener){
+        //add the w3c event listsner for a custom event (cruxBEEPEvent)
+        el.addEventListener(type, function(objEvent){ r = undefined; if(f){ r = f.apply(t, a);} }, false);
+        
+        return function BEEP(fn, args, ths){
+          f = fn;
+          t = ths || null;
+          a = args;
+          r = undefined;
+          //re-use the previous browser event object, if it exists
+          w3cEvent = w3cEvent || _events._createBrowserEventObject(type, {"cancelable": false, "bubbles": false});
+          //firing the DDPAERMEvent on the document element (usually <HTML>), executes "currentHandler" within a browser event
+          //which provides the ability to show errors but keep them from breaking the rest of the framework
+          el.dispatchEvent(w3cEvent);
+          return r;
+        };
+      }
+      //ie<9
+      else if(el.attachEvent && el.detachEvent){
+        //add a listener (below) for the onpropertychange event
+        el.attachEvent(opc, testEvent);
+        //if the browser supports the event, the "fired" flag is set
+        function testEvent(){ testEvent.fired = true; }
+        //changing the "cruxBEEPEvent" property of the document element should trigger the onpropertychange event (if it's supported)
+        el[type] = 1;
+        //detach the test listener, so it isn't repeatedly executed
+        el.detachEvent(opc, testEvent);
+        //if the browser supports the onproprtychange event
+        if(testEvent.fired){
+          //add the handler that will always exist and execute the passed in function
+          //(in the handler, check that it was the "cruxBEEPEvent" property that was changed and execute the handler, if there is one)
+          el.attachEvent(opc, function(){ (event.propertyName === type) && f && (r = f.apply(t, a)); });
+          //return a function that will set the propr local vars and trigger the browser event
+          return function BEEP(fn, args, ths){
+            f = fn;
+            t = ths || null;
+            a = args;
+            r = undefined;
+            //this fires the IE "onpropertychange" event on the documentElement (flips the value between 1 and -1)
+            //which executes the currentHandler from within an actual browser event
+            el[type] *= -1;
+            return r;
+          };
+        }
+      }
+    }
+    //no support for encapsulating execution within a browser event
+    //just flat out execute it
+    return function BEEP(fn, args, ths){ return fn.apply(ths || null, args); };
+  })(),
+  
+  
+  //TODO: determin if regular objects with handlers will have their events cloned properly
+  //if so, move this method into the crux.dom namespace
+  cloneListeners: function cloneListeners(source, dest, deep){
+    var v = _.clone(_.getData(source, '__listeners__'), 2),
+        sc = source.children,
+        dc = dest.children;
+        
+    if(deep && sc && dc){
+      var i = sc.length;
+      //make sure the elements have the same number of children
+      if(i == dc.length){
+        while(i-- && sc[i] && cd[i]){
+          cloneListeners(sc[i], cd[i], true);
+        }
+      }
+    }
+    if(_.isElement(dest, true) || dest == window){
+      for(var key in v){
+        if(_hasOwnProperty.call(v, key)){
+          v[key].__eventModel__ = null;
+          //set up each event type
+          _.listen(dest, key, function(){});
+        }
+      }
+    }
+    //this will overwrite the listeners added above but maintain the main trigger DOM listener
+    return _.setData(dest, '__listeners__', v);
+  },
+  Event : Event
+});
+
+_.listen    = _events.listen;
+_.listeners = _events.listeners;
+_.unlisten  = _events.unlisten;
+_.fire      = _events.fire;
+
+function Event(obj){
+  obj && this.normalize(obj);
+  this._defaultPrevented = false;
+}
+Event.prototype = {
+  normalize : function(obj){
+    var c = this.converters;
+    obj = obj ? (this.browserEvent = obj) : this.browserEvent;
+    for(var k in c){ _hasOwnProperty.call(c, k) && (this[k] = (c[k] === true ? obj[k] : c[k](obj))); }
+    return this;
+  },
+  converters: {
+    target : function(obj){
+      var t = obj.target || obj.sourceElement || obj.srcElement;
+      t && t.nodeType == 3 && t.parentNode && (elTarget = elTarget.parentNode); //safari bug
+      return t;
+    },
+    key : function(obj){
+      return obj.charCode || obj.which || obj.keyCode || false; // gh - 31-dec-2010
+    },
+    x: function(obj){ return (obj.pageX != null || obj.pageY != null) ? obj.pageX : (objEvent.clientX + document.body.scrollLeft - document.body.clientLeft); },
+    y: function(obj){ return (obj.pageX != null || obj.pageY != null) ? obj.pageY : (objEvent.clientY + document.body.scrollTop  - document.body.clientTop); },
+    //true indicated direct copy
+    currentTarget: true,
+    
+    related : function(obj){
+      //TODO: fix this... dont' this the whole to/from logic works.
+      return obj.relatedTarget || obj.fromElement || obj.toElement;
+    }
+  },
+  prevent : function(){
+    var obj = this.browserEvent;
+    obj.preventDefault && obj.preventDefault();
+    obj.returnValue = false;
+  },
+  prevented: function(){ return !obj.returnValue; },
+  stop: function(){
+    var obj = this.browserEvent;
+    if(obj.cancelable){
+      obj.stopPropagation && obj.stopPropagation();
+      obj.cancelBubble = true;
+      return true;
+    }
+  },
+  cancel: function(){ this.prevent; this.stop; }
 };
 
 
-//the function that will be called when the actual event is fired.
-function fireAERMListeners(evt){
-  var objEvent = evt || window.event,
-      elDocEl = document.documentElement,
-      elTarget = (objEvent && objEvent.currentTarget) || this,
-      listenerContainer = getData(elTarget, 'ddp_listeners'),
-      fnTmp;
 
-  //if the element has listeners
-  if(listenerContainer){
-    //take a copy of the handlers that were effective at the time the event was fired
-    var listeners = makeRealArray(listenerContainer[objEvent.type]);
-    
-    //execute the listeners in the order they were added
-    for(var i=0, l=listeners.length; i<l; i++){
-      //set the currentHandler to execute the listener
-      currentHandler = function(){ listeners[i](objEvent); };
-      //manualEventFireMethod (below) is a variable within only this module's scope that indicates which
-      //method can be used for firing manual events within a browser event (it was set up on instanciation)
-      //w3c
-      if(manualEventFireMethod == 1){
-        //firing the DDPAERMEvent on the document element (usually <HTML>), executes "currentHandler" within a browser event
-        //which provides the ability to show errors but keep them from breaking the rest of the framework
-        elDocEl.dispatchEvent(_createBrowserEventObject('DDPAERMEvent', {"cancelable": false, "bubbles": false}));
-      }
-      //ie<9
-      else if(manualEventFireMethod == 2){
-        //this fires the IE "onpropertychange" event on the documentElement (flips the value between 1 and -1)
-        //which executes the currentHandler from within an actual browser event
-        elDocEl.fireDDPAERMEvent *= -1;
-      }
-      //no support for encapsulating manual events within a browser event
-      else{
-        //just flat out execute it
-        currentHandler();
-      }
-      //clear the function from the "currentHandler"
-      currentHandler = null;
+
+//-----------------------------------------------------------------------------------------------------
+// String manupulation module
+//-----------------------------------------------------------------------------------------------------
+_.extend(_str, {
+  isUpper: function isUpper(str){ return (str = str + '') == str.toUpperCase(); },
+  isLower: function isLower(str){ return (str = str + '') == str.toLowerCase(); },
+  right  : function right(str, length){ return (str + '').substr(str.length - Math.min(length, str.length)); },
+  left   : function left(str, length){ return (str + '').substr(0, length); },
+  escapeHTML: function escapeHTML(str){return (str +'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); },
+  unescapeHTML: function unescapeHTML(str){ return (str+'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&'); },
+  repeat : function repeat(str, times){
+    var s = '';
+    times = Math.max(times || 0, 0);
+    while(times){
+      //http://stackoverflow.com/questions/202605/repeat-string-javascript
+      //http://stackoverflow.com/users/345520/artistoex
+      //bitwise AND operator
+      if(times & 1){ s += str; }
+      times >>= 1; //bitwise shift and assignment operator equivalent to: times = times >> 1;
+      str += str;
     }
-  }
+    return s;
+  },
   
-  //return the event return value
-  return objEvent.returnValue;
-}
+  pad: function pad(str, length, padWith, onRight){
+    padWith = padWith || '0';
+    if((length = Math.max(length, 0)) == 0){ return ''; }
+    if(str.length >= length){ return onRight ? _.str.right(str, length) : _.str.left(str, length); }
+    //generate the repeated string to pad the passed one with
+    //(may be larger than the length required if "padWith" contains multiple characters)
+    var s = _.str.repeat(padWith, Math.max(Math.ceil(length/padWith.length) - str.length, 0));
+    return onRight ? str + _.str.right(s, length-str.length) : _.str.left(s, length-str.length) + str;
+  },
+  
+  //check and see if the built-in String.prototype.trim exists
+  trim: _trim ? function(str){ return _trim.call(str); } : function(str){
+    str += ''; //convert to string
+    //http://blog.stevenlevithan.com/archives/faster-trim-javascript, trim12
+    str = str.replace(/^\s\s*/, '');
+    var ws = /\s/, i = str.length;
+    while(ws.test(str.charAt(--i))){} //there is nothing within the braces. this is not a typo
+    return str.slice(0, i + 1);
+  },
+  
+  /***************************************************************/
+  //isValidString
+  //returns true if the supplied string matches the corresponding regular expression for the supplied format type
+  valid: function valid(str, formatType){
+    var reOrFn = _.str.formats[formatType];
+    if(reOrFn instanceof RegExp){ return reOrFn.test(str); }
+    if(_.isFunction(reOrFn))    { return reOrFn(str);      }
+    throw 'Invalid format type provided: "' + formatType + '". Inspect crux.str.formats for valid format types.';
+  },
+  
+  formats: {
+    email         : /^[A-Za-z0-9_\-\.]+@(([A-Za-z0-9\-])+\.)+([A-Za-z\-])+$/,
+    //TODO: Add partial string validation regexs for all formats
+    //      (stop user from entering invalid chars for the validation type)
+    email_partial : /^[A-Za-z0-9_\-\.@]+$/,
+    phone         : /^(\(?[0-9]{3}\)?)? ?\-?[0-9]{3}\-?[0-9]{4}$/,
+    number_dec    : /^-?\d+(\.\d+)?$/,
+    number_int    : /^-?\d+$/,
+    postalcode_ca : /^[abceghjklmnprstvxy][0-9][abceghjklmnprstvwxyz]\s?[0-9][abceghjklmnprstvwxyz][0-9]$/i,
+    postalcode_us : /^([0-9]{5})(?:[-\s]*([0-9]{4}))?$/,
+    postalcode_uk : /^([a-zA-Z]){1}([0-9][0-9]|[0-9]|[a-zA-Z][0-9][a-zA-Z]|[a-zA-Z][0-9][0-9]|[a-zA-Z][0-9]){1}([ ])([0-9][a-zA-z][a-zA-z]){1}$/,
+    filename      : /[^0-9a-zA-Z\._\(\)\+\-\!@#\$%\^&,`~\[\]{} ']/
+  },
+  
+  toCamel: function toCamel(str, changeFloat){
+    return (changeFloat && str == 'float')
+             ? _detected.floatProperty
+             : str.replace(toCamel.re || (toCamel.re = /\W+(.)/g), function(_, l){ return l.toUpperCase(); });
+             //: str.toLowerCase().replace(/-([a-z])/g, function (_, l) { return l.toUpperCase(); });
+  },
+  
+  toDashed: function toDashed(str, changeFloat){
+    return (changeFloat && str == 'styleFloat' || str == 'cssFloat')
+             ? 'float'
+             : str.replace(toDashed.re1 || (toDashed.re1 = /\W+/g), '-')
+               .replace(toDashed.re2 || (toDashed.re2 = /([a-z\d])([A-Z])/g), '$1-$2')
+               .toLowerCase();
+  },
+
+  parseUri: (function(){
+    // parseUri 1.2.2
+    // (c) Steven Levithan <stevenlevithan.com>
+    // MIT License
+    function parseUri(str, doc){
+     var relativeTo = (doc && doc.location) ? parseUri(doc.location.href) : (_.isString(doc) ? parseUri(doc) : null);
+         o   = parseUri.options,
+         m   = o.parser[(relativeTo || o.strictMode) ? "strict" : "loose"].exec(str),
+         uri = {},
+         i   = 14;
+    
+      while(i--){ uri[o.key[i]] = m[i] || ""; }
+    
+      uri[o.q.name] = {};
+      uri[o.key[12]].replace(o.q.parser, function ($0, $1, $2) {
+        if($1) uri[o.q.name][$1] = $2;
+      });
+      
+      if(relativeTo){
+        ["protocol","authority","userInfo","user","password","host","port"].forEach(function(s){ uri[s] = uri[s] || relativeTo[s]; });
+        ["relative","path","directory"].forEach(function(s){ uri[s] = (uri[s].charAt(0) == '/') ? uri[s] : relativeTo["directory"] + uri[s]; });
+      }
+      return uri;
+    }
+    parseUri.options = {
+      strictMode: false,
+      key: ["source","protocol","authority","userInfo","user","password","host","port","relative","path","directory","file","query","anchor"],
+      q:   {
+        name:   "queryKey",
+        parser: /(?:^|&)([^&=]*)=?([^&]*)/g
+      },
+      parser: {
+        strict: /^(?:([^:\/?#]+):)?(?:\/\/((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?))?((((?:[^?#\/]*\/)*)([^?#]*))(?:\?([^#]*))?(?:#(.*))?)/,
+        loose:  /^(?:(?![^:@]+:[^:@\/]*@)([^:\/?#.]+):)?(?:\/\/)?((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?)(((\/(?:[^?#](?![^?#\/]*\.[^?#\/.]+(?:[?#]|$)))*\/?)?([^?#\/]*))(?:\?([^#]*))?(?:#(.*))?)/
+      }
+    };
+    
+    return parseUri;
+  })(),
+  
+  cleanWordMarkup: function cleanWordMarkup(str){
+    // Remove unnecessary tag spans (comments and title)
+    str = str.replace(/\<\!--(\w|\W)+?--\>/gim, '');
+    str = str.replace(/\<title\>(\w|\W)+?\<\/title\>/gim, '');
+    // Remove all classes and styles
+    str = str.replace(/\s?class=\w+/gim, '');
+    str = str.replace(/\s+style=\'[^\']+\'/gim, '');
+    str = str.replace( /<(\w[^>]*) style="([^\"]*)"([^>]*)/gi, "<$1$3" ) ;
+    // Remove unnecessary tags
+    str = str.replace(/<(meta|link|\/?o:|\/?style|\/?font|\/?img|\/?h|\/?a|\/?script|\/?div|\/?st\d|\/?head|\/?html|body|\/?body|\/?span|!\[)[^>]*?>/gim, '');
+    // Remove underline tags
+    str = str.replace(/<\/?u>/gim,'');    
+    // Get rid of empty paragraph tags
+    str = str.replace(/(<[^>]+>)+&nbsp;(<\/\w+>)/gim, '');
+    // Remove bizarre v: element attached to <img> tag
+    str = str.replace(/\s+v:\w+=""[^""]+""/gim, '');
+    // Remove extra lines
+    str = str.replace(/"(\n\r){2,}/gim, '');
+    // Fix entites
+    str = str.replace("&ldquo;", "\"");
+    str = str.replace("&rdquo;", "\"");
+    str = str.replace("&mdash;", "â€“");
+    return str;
+  }
+});
 
 
 
 
 
-
+//---------------------------------------------------------------
+// DOM Module
+//---------------------------------------------------------------
 _.extend(_.dom, {
   //we can't assign this until Sizzle is instanciated at the end of this file 
   selectorEngine: null, //by default will be Sizzle()
   selectorEngine_matches: null, //by default will be Sizzle.matches()
   
   //***************************************************************
-  //childOf 
+  //childOf
   //returns true if all elements in the collection are DOM descendents of the supplied dom element, otherwise returns false.
   childOf: function childOf(elChild, elParent, blnBridgeIframes){
     //var elChild = this.index(0);
