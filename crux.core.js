@@ -142,7 +142,8 @@ var _every    = Array.prototype.every,
     //TODO: so far unused, remove if we don't end up using them in the core module
     _unshift  = Array.prototype.unshift,
     _lastIndexOf = Array.prototype.lastIndexOf;
-
+    
+    
 
 //-------------------------------------------------------------------------------
 // detect a bunch of browser inconsistencies, for later use in the library core
@@ -183,6 +184,7 @@ var _ = window[_externalName] = {
   str      : _str,
   ajax     : _ajax,
   _cache   : _cache,
+  Object   : CruxObject,
 
   ready: function ready(fn){ _events.listen(document, 'ready', fn); },
   
@@ -574,12 +576,132 @@ var _ = window[_externalName] = {
     f.args = _slice.call(arguments, 1);
     f.original = fn;
     return f;
+  },
+  
+  
+  _checkReady: function(){
+    //set the default trap events
+    //(when listen tries to add more handlers after they've fired once, the "added" handler is executed immediately)
+    _events.setTrap(window, 'load');
+    _events.setTrap(document, 'ready');
+    
+    function fireDOMReady(objEvent){
+      if(fireDOMReady.done){
+        return;
+      }
+      //remove the handlers from the document/window objects
+      _.unlisten(document, 'DOMContentLoaded', fireDOMReady);
+      _.unlisten(window, 'load', fireDOMReady);
+      //record a timestamp of when it was ready 
+      //ddp.f.documentReadyTime = (new Date().getTime());
+      //ddp.f.documentReadyMethod = objEvent.type;
+      fireDOMReady.done = true;
+      _events.fire(document, 'ready', {"cancelable":false});
+    }
+    
+    var elLast = document.getElementsByTagName ? document.getElementsByTagName('*') : null;
+    //if the 
+    if(document.readyState == 'complete' || (document.readyState === undefined && elLast[elLast.length-1] !== undefined) ){
+      fireDOMReady({"type": "readyState_alreadyComplete"});
+      //add something here to fire only the window.load events added by this instance
+      //_.fire(document, 'ready', {"cancelable":false});
+    }
+    else{
+      //code block below taken almost straight-up from jQuery (credit to Diego Perini and John Resig)
+      if(document.attachEvent){
+        document.attachEvent('onreadystatechange', function checkstate(){
+          if(document.readyState == 'complete'){
+            document.detachEvent('onreadystatechange', checkstate);
+            fireDOMReady({"type": "readyState"});
+          }
+        });
+        
+        //not inside an iframe
+        if(window == top){
+          setTimeout(function scrollCheckLoop(){
+            try{ document.documentElement.doScroll("left"); }
+            catch(e){
+              if(!fireDOMReady.done){
+                setTimeout(scrollCheckLoop, 0);
+              }
+              return;
+            }
+            fireDOMReady({"type": "doScroll"});
+          }, 0);
+        }
+      }
+    
+      //if the browser supports the DOMContentLoaded event,
+      //then we'll just attach a handler and use it to fire our custom document "ready"
+      _events.listen(document, 'DOMContentLoaded', fireDOMReady);
+      //fallback to firing the document "ready" on window "load" if it hasn't already been fired by another method
+      _events.listen(window, 'load', fireDOMReady);
+    }
   }
 
 };
 
 
+//-----------------------------------------------
+//-----------------CRUX OBJECT-------------------
+//-----------------------------------------------
+function CruxObject(){};
+//CruxObject.subclass = function(obj, name){ return (new CruxObject).subclass.apply(this, arguments); };
+CruxObject.prototype = {
+  constructor : CruxObject,
+  _super      : Object,
+  toString    : function toString(){     return '[object '+(this.className || 'Object')+']';              },
+  augment     : function augment(obj){   _.extend(this.constructor.prototype, obj); return this;          },
+  mergeIndexes: function mergeIndexes(){ return _.mergeIndexes.apply(this, _.toArray([this], arguments)); },
+  subclass    : function subclass(obj, name){
+    name = name || (obj ? obj.className : null) || this.className || '';
+    //Create a function using the Function constructor so we can name the inner returned function with the className
+    //Within the returned function, execute the default constructor in the context of the new object.
+    //If the subclass has or inherited an init method, execute it with any arguments passed to this consructor
+    var sub = Function('return function ' + name + '(){ arguments.callee.__parentContructor__.call(this); this.init && this.init.apply(this, arguments);}')();
+    sub.prototype = _.extend(this, obj);
+    this.className = name;
+    this._super = sub.__parentContructor__ = this.constructor;
+    this._super.subclasses = (this._super.subclasses ? this._super.subclasses.push(sub): [sub]) 
+    return this.constructor = sub;
+  }
+};
 
+//-----------------------------------------------
+//-----------------COLLECTION--------------------
+//-----------------------------------------------
+var Collection = (new CruxObject).subclass({
+  className  : 'Collection',
+  init: function(){
+    this.length = 0;
+    arguments && _push.apply(this, arguments);
+  },
+  push       : _push,
+  splice     : _splice,
+  every      : _every,
+  indexOf    : _indexOf,
+  toArray    : function toArray(){     return _.toArray(this);                              },
+  first      : function first(){       return this.index(0);                                },
+  last       : function last(){        return this.index(this.length-1);                    },
+  contains   : function contains(){    return !!(_indexOf.call(ar, val) + 1);               },
+  empty      : function empty(){       return this.setLength(0);                            },
+  unique     : function unique(copy){  return _.unique(this, copy);                         },
+  forEach    : function forEach(){     _forEach.apply(this, arguments);  return this;       },
+  add        : function add(){         _push.apply(this, arguments);     return this;       },
+  filter     : function filter(fn){    return new this.constructor(_filter.call(this, fn)); },
+  DOMElements: function DOMElements(allowDocument){ return this.filter(function(v){ return _.isElement(v, allowDocument); }); },
+  index: function index(ind){ return new this.constructor((ind < this.length ? this[ind] : null), this.selectionContext); },
+  setLength: function setLength(newLength){
+    var i = this.length;
+    newLength -= 1;
+    while(i > newLength){
+      this[i] = undefined;
+      delete this[i--];
+    }
+    this.length = newLength + 1;
+    return this;
+  }
+});
 
 
 
@@ -591,14 +713,16 @@ _.extend(_events, {
   /***************************************************************/
   //listen
   listen: function listen(target, type, listener){
-    var arResults,
-        i, l,
-        noWrap = arguments[3], //don't show the internally used "noWrap" argument 
+    var noWrap = arguments[3], //don't show the internally used "noWrap" argument
+        once = arguments[4],
+        emulate = _events.emulate,
+        eventNamespace = '',
+        arResults,
+        i, l, //iterator and length for looping
         savedSelector,
+        trapped,
         listeners,
-        listenerContainer,
-        eventNamespace = '';
-        
+        listenerContainer;
     
     if(_.isString(type)){
       type = _.str.trim(type);
@@ -665,54 +789,61 @@ _.extend(_events, {
       //return null to indicate that there was a problem adding the listener
       return null;
     }
+    
+    //get the current listener container or create a new one
+    listenerContainer = _.getData(target, '__listeners__') || _.setData(target, '__listeners__', {});
+    
+    //get the listeners array if it exists and check if it's an array, if it's not then
+    if(!_.isArray(listeners = listenerContainer[type])){
+      //create a new array and assign it to both the listener container and our local variable "listeners"
+      listeners = listenerContainer[type] = [];
+    }
   
-    /*
-    //emulate events that are in "ddpEmulatedEvents" if the browser doesn't support them
-    if(ddpEmulatedEvents[type] && !target['ddpEmulated_' + type] && !_events.supported(type, target)){
+    
+    //emulate events that are in "emulatedEvents" if the browser doesn't support them
+    if(emulate[type] && !listeners.emulated && !_events.supported(type, target)){
       //mark the element as having the emulation set up (so we don't try to do it again)
-      target['ddpEmulated_' + type] = true;
+      listeners.emulated = true;
       //add any prerequisite emulated events (ie. mouseenter emulation depends on the mouseleave event and vise-versa)
-      if(ddpEmulatedEvents[type].prerequisiteEvents){
-        ddpEmulatedEvents[type].prerequisiteEvents.split(' ').forEach(function(emuEventType){
-          listen(target, ddpEmulatedEvents[emuEventType].attachToEvent, ddpEmulatedEvents[emuEventType].fn);
+      if(emulate[type].prerequisiteEvents){
+        emulate[type].prerequisiteEvents.split(' ').forEach(function(emuEventType){
+          _events.listen(target, emulate[emuEventType].attachToEvent, emulate[emuEventType].fn, true);
         });
       }
       //if it's a one-time event
-      if(ddpEmulatedEvents[type].isOneTime){
+      if(emulate[type].isTrapEvent){
         //set it as such
-        setOneTimeEvent(target, type);
+        _events.setTrap(target, type);
       }
       //add the listener that performs the emulation to the event that can be used to trigger the emulation
-      listen(ddpEmulatedEvents[type].attachToElement || target, ddpEmulatedEvents[type].attachToEvent, function(objEvent){ return ddpEmulatedEvents[type].fn && ddpEmulatedEvents[type].fn.call(target, objEvent); });
+      _events.listen(emulate[type].attachToElement || target, emulate[type].attachToEvent, function(e){ return emulate[type].fn && emulate[type].fn.call(target, e); }, true);
     }
-    */
+    
     
     //if this is a one-time event (such as window 'load'), and it has already been fired,  
-    //if(getData(target, 'ddpOneTimeEvent_' + type) && getData(target, 'ddpOneTimeEvent_' + type + '_fired') && !forceAddOTE){
-    if(_.getData(target, 'cruxOTE_' + type) && _.getData(target, 'cruxOTE_' + type + '_fired')){
+    if(trapped = _events.trapFired(target, type)){
       //then execute the event listener right away (using the event target as "this" and passing a new event object to it).
-      //var obj = _createPlainEventObject(type);
-      var obj = _.getData(target, 'cruxOTE_' + type + '_object');
-      //obj.target = target;
-      //obj.currentTarget = target;
-      listener.call(target, obj);
+      listener.call(target, trapped);
       return 4; //indicate a one time event re-fire
     }
     
     //create a function to repair the scope and redirect the proper event object. 
     var fn = function(ev){
-      ev = ev || window;
       //use the event object passed as an argument, or try to use the global event object available in IE <10
-      var rv, objEvent = ev;
-      if(!noWrap && ev.eventModel != 3){
-        objEvent = (ev.cruxEvent ? ev.cruxEvent.normalize(ev) : new _events.Event(ev));
-        delete objEvent.cruxEvent;
-        objEvent.cruxEvent = undefined;
+      var rv, objEvent = (ev = ev || window);
+      if(!noWrap && ev.eventModel !== 3){
+        objEvent = ev.cruxEvent || new _events.Event;
+        !objEvent.normalized && objEvent.normalize(objEvent.nativeEvent || ev);
+        objEvent.currentTarget = objEvent.currentTarget || this;//_events.Event.prototype.converters.target(ev);
       }
+      
       //if there is no event namespace or the event namespace matches the listener namespace
       if(!objEvent.eventNamespace || objEvent.eventNamespace == fn.namespace){
         //white a property on the event object with the current listener namespace 
         objEvent.listenerNamespace = fn.namespace;
+        if(once){
+          _events.unlisten(target, type, fn.innerFn);
+        }
         //call the listener using the current target as it's "this" (scope of the target object) 
         rv = fn.innerFn.call(objEvent.currentTarget || target, objEvent);
         if(rv === false || (objEvent.type === 'beforeunload' && isString(rv))){
@@ -731,17 +862,9 @@ _.extend(_events, {
     fn.namespace = eventNamespace;
     
     
-    //get the current listener container or create a new one
-    listenerContainer = _.getData(target, '__listeners__') || _.setData(target, '__listeners__', {});
-    
-    //get the listeners array if it exists and check if it's an array, if it's not then
-    if(!_.isArray(listeners = listenerContainer[type])){
-      //create a new array and assign it to both the listener container and our local variable "listeners"
-      listeners = listenerContainer[type] = [fn];
-    }
     //if there are no listeners in the array or the new listener isn't present in the array
     //TODO: figure out if we need to add a listener for each namespace
-    else if(listeners.length == 0 || !listeners.some(function(fn){ return fn.innerFn == listener; })){
+    if(listeners.length == 0 || !listeners.some(function(fn){ return fn.innerFn == listener; })){
       //just push the listener onto the end of the array
       listeners.push(fn);
     }
@@ -810,8 +933,13 @@ _.extend(_events, {
   },
   
   
+  listenOnce : function listenOnce(target, type, listener){
+    return _events.listen(target, type, listener, arguments[3], true);
+  },
   
-  fire: function fire(target, type, obj, blnManualBubble){
+  
+  
+  fire: function fire(target, type, obj, manualBubble){
     var objEvent,
         objBrowserEvent,
         eventNamespace = '',
@@ -845,7 +973,7 @@ _.extend(_events, {
       arResults = [];
       l=target.length;
       for(i=0; i<l; i++){
-        arResults.push(fire(target[i],  type, obj, blnManualBubble));
+        arResults.push(fire(target[i],  type, obj, manualBubble));
       }
       return arResults;
     }
@@ -855,7 +983,7 @@ _.extend(_events, {
       arResults = [];
       l=type.length;
       for(i=0; i<l; i++){
-        arResults.push(fire(target, type[i], obj, blnManualBubble));
+        arResults.push(fire(target, type[i], obj, manualBubble));
       }
       return arResults;
     }
@@ -875,7 +1003,7 @@ _.extend(_events, {
       arResults = [];
       for(var key in listenerContainer){
         if(_hasOwnProperty.call(listenerContainer, key)){
-          arResults = arResults.concat(fire(target, eventNamespace ? eventNamespace + '.' + key : key, obj, blnManualBubble));
+          arResults = arResults.concat(_events.fire(target, eventNamespace ? eventNamespace + '.' + key : key, obj, manualBubble));
         }
       }
       return arResults;
@@ -887,7 +1015,7 @@ _.extend(_events, {
     //set some properties that will be passed to the event object
     objEvent = _.clone(obj, false, _events.Event);
     objEvent.eventNamespace = eventNamespace;
-    objEvent.manualBubble = !!blnManualBubble;
+    objEvent.manualBubble = !!manualBubble;
     if(objEvent.manualBubble){
       objEvent.bubbles = true;
     }
@@ -1050,9 +1178,7 @@ _.extend(_events, {
   
   
   //--------------------------------------------------------------------------------------------
-  //
-  //getListeners
-  //
+  //listeners
   //--------------------------------------------------------------------------------------------
   listeners: function listeners(target, type, fn, callback){
     var listenerContainer = _.getData(target, '__listeners__'),
@@ -1092,6 +1218,44 @@ _.extend(_events, {
       }
     }
     return arResults;
+  },
+  
+  
+  setTrap: function setTrap(target, type){
+    //if the element has already been assigned as a "one time event" for this event type
+    //don't overwrite the values already present 
+    if(_.getData(target, '__TRAP_EVENT__' + type + '_fired')){ return; }
+    //set a flag so that we can identify this element+event as a "one time" and mark it as "not yet fired"
+    _.setData(target, '__TRAP_EVENT__' + type + '_fired', false);
+    //add an handler that marks the object+event as fired and preserves the event object
+    return _events.listenOnce(target, type, function(e){
+      _.setData(target, '__TRAP_EVENT__' + type + '_fired', e);
+    });
+  },
+  
+  isTrap: function isTrap(target, type){
+    var d = _.getData(target, '__TRAP_EVENT__' + type + '_fired')
+    //if the element has already been assigned as a "trap event" for this event type 
+    return !!(d === false || d);
+  },
+  
+  //can return undefined, false, or an event object
+  trapFired: function trapFired(target, type){ return _.getData(target, '__TRAP_EVENT__' + type + '_fired'); },
+
+  /***************************************************************/
+  //setOneTimeEvent
+  //flags an event on an object as a "one time event"
+  resetTrap: function resetTrap(target, type){
+    var fired = _events.trapFired(target, type);
+    //is one, but hasn't fired yet so it doesn't need to be reset 
+    if(fired === false){ return; }
+    //has already been fired
+    if(fired){
+      //mark it as "not yet fired"
+      _.setData(target, '__TRAP_EVENT__' + type + '_fired', undefined);
+    }
+    //re-set up the trap event
+    _events.setTrapEvent(target, type);
   },
   
   
@@ -1137,6 +1301,140 @@ _.extend(_events, {
     }
     el = null;
     return !!isSupported; //!! ensures "undefined" is not passed back 
+  },
+  
+  //this object contains the events emulated by DDP for browsers that don't support them
+  emulate: {
+    //emulate the IE mouseeenter event for FF/Opera
+    "mouseenter":{
+      "attachToEvent": "mouseover",
+      "prerequisiteEvents": "mouseleave",
+      "fn": function(e){
+        //if "relatedTarget"(FF) or "fromElement"(Opera) is not a child of the original event target (this)
+        if(!_.dom.isChild(e.relatedTarget || e.fromElement, this) && !_.getData(this, '__mouseEntered__')){
+          //sorry, adding an expando. memory leakage should be minimal with the boolean value
+          _.setData(this, '__mouseEntered__', true);
+          //clone the browser generated event object (this preserves mouse coordinates, originating time, etc..)
+          //set the bubbles property to false (when passed to the fireEvent function, this will stop the fired event from bubbling)
+          //(which we want because we're trying to mimic the IE 'mouseenter' behaviour)
+          //fire the mouseleave event manually (using the cloned event object as a parameter)
+          return _events.fire(this, 'mouseenter', _.extend({}, e, {bubbles: false, nativeEvent: e})).returnValue;
+        }
+      }
+    },
+    
+    //emulate the IE mouseeleave event for FF/Opera
+    "mouseleave":{
+      "attachToEvent": "mouseout",
+      "prerequisiteEvents": "mouseenter",
+      "fn": function(e){
+        //if "relatedTarget"(FF) or "toElement"(Opera) is not a child of the original event target (this) AND "relatedTarget" is not the original target
+        if(!_.dom.isChild(e.relatedTarget || e.toElement, this) && e.relatedTarget != this){
+          //delete the expando.
+          _.setData(this, '__mouseEntered__', undefined);
+          //clone the browser generated event object (this preserves mouse coordinates, originating time, etc..)
+          //set the bubbles property to false (when passed to the fireEvent function, this will stop the fired event from bubbling)
+          //(which we want because we're trying to mimic the IE 'mouseleave' behaviour)
+          //fire the mouseleave event manually (using the cloned event object as a parameter)
+          return _events.fire(this, 'mouseleave', _.extend({}, e, {bubbles: false, nativeEvent: e})).returnValue;
+        }
+      }
+    },
+    
+    //emulate the mozilla/w3c event DOMMouseScroll on ie and opera
+    "DOMMouseScroll":{
+      "attachToEvent": "mousewheel",
+      "fn": function(e){
+        //fire the event so that it looks like it came from the event type we're emulating
+        //return the returnValue (in case IE wants to prevent the default action)
+        return _events.fire(this, 'DOMMouseScroll', e).returnValue;
+      }
+    },
+    
+    //emulate a new type of event which is fired when the enter key is pressed on an element (e.g. <input>)
+    "enterkeypress":{
+      "attachToEvent": "keypress",
+      "fn": function(e){
+        //using the convertor for the "key" property (from the CruxEvent object), figure out the code of the key pressed
+        if(_events.Event.prototype.converters.key(e) == 13){
+          //clone the browser generated event object (preserves mouse coordinates, originating time, etc..)
+          //fire the enterkey event manually (using the cloned event object as a parameter)
+          return _events.fire(this, 'enterkeypress', _.extend({}, e, {bubbles: false, nativeEvent: e})).returnValue;
+        }
+      }
+    },
+    //emulate a new type of event which is fired when the enter key is pressed on an element (e.g. <input>)
+    "focusin":{
+      "attachToEvent": "DOMFocusIn",
+      "fn": function(e){
+        //clone the browser generated event object (preserves mouse coordinates, originating time, etc..)
+        //fire the emulated event manually (using the cloned event object as a parameter)
+        return _events.fire(this, 'focusin', _.extend({}, e, {bubbles: false, nativeEvent: e})).returnValue;
+      }
+    }
+    /*
+    "inview":{
+      "attachToEvent": "scroll resize load",
+      "attachToElement": window,
+      "isTrapEvent": true,
+      "fn": function(objWindowEvent){
+        var et = _events.Event.prototype.target(objWindowEvent);
+        if(et != window && et != document && et != document.documentElement && et !== null)
+          return;
+        if(_events.trapFired(this, 'inview')){
+          return;
+        }
+        var bg = _.dom.geometry();
+        var ep = _.dom.position(this, null, true);
+        
+        if(bg.viewportHeight + bg.verticalScroll >= ep.y &&
+           bg.verticalScroll <= ep.y &&
+           bg.viewportWidth + bg.horizontalScroll >= ep.x &&
+           bg.horizontalScroll <= ep.x){
+          
+          //clone the browser generated event object (preserves mouse coordinates, originating time, etc..)
+          var objEventProperties = _.clone(objWindowEvent);
+          objEventProperties.bubbles = false;
+          
+          //fire the inview event manually (using the cloned event object as a parameter)
+          //Also, the 5th argument tells the function to return the event object created during the firing process 
+          var objReturnEvent = _events.fire(this, 'inview', objEventProperties, false, true);
+          
+          if(objReturnEvent.returnValue === false){
+            //TODO: fix line below
+            //preventEventDefault(objKeypressEvent);
+          }
+          if(objReturnEvent.cancelBubble){
+            //TODO: fix line below
+            //stopEventPropagation(objKeypressEvent);
+          }
+          return objReturnEvent.returnValue;
+        }
+      }
+    },
+    "pagehide":{
+      "attachToEvent": "unload",
+      "fn": function(objUnloadEvent){
+        //
+        if(objUnloadEvent.persisted){
+          //clone the browser generated event object (preserves mouse coordinates, originating time, etc..)
+          var objEventProperties = cloneObject(objUnloadEvent, true);
+          objEventProperties.bubbles = false;
+          //fire the enterkey event manually (using the cloned event object as a parameter)
+          //Also, the 5th argument tells the function to return the event object created during the firing process 
+          var objReturnEvent = fireEvent(this, 'pagehide', objEventProperties, false, true);
+          
+          if(objReturnEvent.returnValue === false){
+            preventEventDefault(objKeypressEvent);
+          }
+          if(objReturnEvent.cancelBubble){
+            stopEventPropagation(objKeypressEvent);
+          }
+          return objReturnEvent.returnValue;
+        }
+      }
+    }
+    */
   },
   
   
@@ -1390,8 +1688,9 @@ _.extend(_events, {
     CruxEvent.prototype = {
       normalize : function(obj){
         var c = this.converters;
-        obj = obj ? (this.browserEvent = obj) : this.browserEvent;
-        for(var k in c){ _hasOwnProperty.call(c, k) && (this[k] = (c[k] === true ? obj[k] : c[k](obj))); }
+        obj = obj ? (this.nativeEvent = obj) : this.nativeEvent;
+        for(var k in c){ _hasOwnProperty.call(c, k) && (this[k] = (c[k] === true ? obj[k] : c[k](obj, this))); }
+        this.normalized = true;
         return this;
       },
       toString: function(){
@@ -1417,24 +1716,44 @@ _.extend(_events, {
           //Opera < 10 doesn't have a timestamp property on it's event object
           return e.timeStamp || (new Date).getTime();
         },
+        detail: function(e){
+          var detail = e.detail || 0;
+          //['click', 'dblclick', 'mousedown', 'mouseup']
+          //the detail property indicates how many times the mouse has been clicked in the same location
+          if(['mousescroll', 'mousewheel'].indexOf(e.type) + 1){
+            // IE/Opera
+            if(!detail && e.wheelDelta){
+              //wheelDelta gives us 120 or -120. this calc gives us 3 or -3 to bring the value in sync with the mozilla/w3c value.
+              detail = e.wheelDelta/120*3;
+              //if it's IE (i realize saying "not opera" isn't the same as "is IE", but for all intents and purposes this will have to do.)
+              if(!window.opera){
+                detail *= -1;
+              }
+            }
+          }
+          return detail;
+        },
         key: function(e){
           return e.charCode || e.which || e.keyCode || false; // gh - 31-dec-2010
         },
         x: function(e){ return (e.pageX != null || e.pageY != null) ? e.pageX : (e.clientX + document.body.scrollLeft - document.body.clientLeft); },
         y: function(e){ return (e.pageX != null || e.pageY != null) ? e.pageY : (e.clientY + document.body.scrollTop  - document.body.clientTop); },
-        related : function(e){
+        related: function(e){
           //TODO: fix this... don't think the whole to/from logic works.
           return e.relatedTarget || e.fromElement || e.toElement;
         }
       },
       prevent : function(){
-        var obj = this.browserEvent;
+        var obj = this.nativeEvent;
         obj.preventDefault && obj.preventDefault();
         obj.returnValue = false;
       },
-      prevented: function(){ return !obj.returnValue; },
+      prevented: function(){
+        var obj = this.nativeEvent;
+        return !obj.returnValue;
+      },
       stop: function(){
-        var obj = this.browserEvent;
+        var obj = this.nativeEvent;
         if(obj.cancelable){
           obj.stopPropagation && obj.stopPropagation();
           obj.cancelBubble = true;
@@ -1453,6 +1772,43 @@ _.listeners = _events.listeners;
 _.fire      = _events.fire;
 
 
+
+
+//-----------------------------------------------------------------------------------------------------
+// AJAX Module
+//-----------------------------------------------------------------------------------------------------
+(function(){
+  _.extend(_ajax, {
+    request: function(){
+      var r = new _ajax.Request;
+      return r;
+    }
+  });
+  
+  var inProgress = [];
+  var Request = (new _.Object).subclass({
+    className: "Request",
+    init: function(params){
+      _events.setTrap(this, 'complete');
+      _events.listen(this, 'start', track);
+      _events.listen(this, 'complete', untrack);
+      this.method = params.method || 'GET';
+      this.parentNode = _ajax;
+    },
+    x: function(){},
+    t: function(){},
+    z: function(){}
+  });
+  
+  function track(e){
+    inProgress.push(e.target);
+  }
+  function untrack(e){
+    inProgress.splice(inProgress.indexOf(e.target), 1);
+  }
+  
+})();
+  
 
 
 //-----------------------------------------------------------------------------------------------------
@@ -1697,6 +2053,7 @@ _.extend(_.dom, {
   /***************************************************************/
   //getStyle
   //returns the effective CSS style on an element
+  //TODO: apparently is broken in FF 12
   getStyle: function getStyle(el, str){
     if(str=='opacity'){ return _.dom.getOpacity(el); }
     return (window.getComputedStyle && window.getComputedStyle(el, '').getPropertyValue(str))
@@ -1884,6 +2241,9 @@ _.extend(_.dom, {
     var documentElement = document.documentElement;
     var body = document.body;
     
+    //set up the caching flag listener
+    _events.listen(window, 'scroll resize', function(o){ _cache.geometryChanged = true; }, true);
+    
     var docGeometry = function(){
       if(w.innerHeight && w.scrollMaxY){ // Firefox
         return (docGeometry = function(){
@@ -1973,69 +2333,6 @@ _.extend(_.dom, {
   
 });
 
-_.listen(window, 'scroll resize', function(o){ _cache.geometryChanged = true; }, true);
-
-
-//-----------------------------------------------
-//-----------------CRUX OBJECT-------------------
-//-----------------------------------------------
-var CruxObject = function CruxObject(){};
-//CruxObject.subclass = function(obj, name){ return (new CruxObject).subclass.apply(this, arguments); };
-CruxObject.prototype = {
-  constructor : CruxObject,
-  _super      : Object,
-  toString    : function toString(){     return '[object '+(this.className || 'Object')+']';              },
-  augment     : function augment(obj){   _.extend(this.constructor.prototype, obj); return this;          },
-  mergeIndexes: function mergeIndexes(){ return _.mergeIndexes.apply(this, _.toArray([this], arguments)); },
-  subclass    : function subclass(obj, name){
-    name = name || (obj ? obj.className : null) || this.className || '';
-    //Create a function using the Function constructor so we can name the inner returned function with the className
-    //Within the returned function, execute the default constructor in the context of the new object.
-    //If the subclass has or inherited an init method, execute it with any arguments passed to this consructor
-    var sub = Function('return function ' + name + '(){ arguments.callee.__parentContructor__.call(this); this.init && this.init.apply(this, arguments);}')();
-    sub.prototype = _.extend(this, obj);
-    this.className = name;
-    this._super = sub.__parentContructor__ = this.constructor;
-    this._super.subclasses = (this._super.subclasses ? this._super.subclasses.push(sub): [sub]) 
-    return this.constructor = sub;
-  }
-};
-
-//-----------------------------------------------
-//-----------------COLLECTION--------------------
-//-----------------------------------------------
-var Collection = (new CruxObject).subclass({
-  className  : 'Collection',
-  init: function(){
-    this.length = 0;
-    arguments && _push.apply(this, arguments);
-  },
-  push       : _push,
-  splice     : _splice,
-  every      : _every,
-  indexOf    : _indexOf,
-  toArray    : function toArray(){     return _.toArray(this);                              },
-  first      : function first(){       return this.index(0);                                },
-  last       : function last(){        return this.index(this.length-1);                    },
-  contains   : function contains(){    return !!(_indexOf.call(ar, val) + 1);               },
-  empty      : function empty(){       return this.setLength(0);                            },
-  unique     : function unique(copy){  return _.unique(this, copy);                         },
-  forEach    : function forEach(){     _forEach.apply(this, arguments);  return this;       },
-  add        : function add(){         _push.apply(this, arguments);     return this;       },
-  filter     : function filter(fn){    return new this.constructor(_filter.call(this, fn)); },
-  DOMElements: function DOMElements(allowDocument){ return this.filter(function(v){ return _.isElement(v, allowDocument); }); },
-  index: function index(ind){ return new this.constructor((ind < this.length ? this[ind] : null), this.selectionContext); },
-  setLength: function setLength(newLength){
-    var i = this.length;
-    newLength -= 1;
-    while(i > newLength){
-      this[i] = undefined;
-      delete this[i--];
-    }
-    this.length = newLength + 1;
-    return this;
-  }
-});
 
 
 //-----------------------------------------------
@@ -2251,67 +2548,8 @@ _.dom.selectorEngine_matches = Sizzle.matches;
 //--------------------END Sizzle -------------------------------------------------
 //--------------------------------------------------------------------------------
 
-
-//set the default one time events
-//(when addEvent tries to add more handlers after they've fired once, the "added" handler is executed immediately)
-//setOneTimeEvent(window, 'load');
-//setOneTimeEvent(document, 'ready');
-
-
-var fireDOMReady = function(objEvent){
-  if(fireDOMReady.done){
-    return;
-  }
-  //remove the handlers from the document/window objects
-  _events.unlisten(document, 'DOMContentLoaded', fireDOMReady);
-  _events.unlisten(window, 'load', fireDOMReady);
-  //record a timestamp of when it was ready 
-  //ddp.f.documentReadyTime = (new Date().getTime());
-  //ddp.f.documentReadyMethod = objEvent.type;
-  fireDOMReady.done = true;
-  _events.fire(document, 'ready', {"cancelable":false});
-};
-
-var elLast = document.getElementsByTagName ? document.getElementsByTagName('*') : null;
-//if the 
-if(document.readyState == 'complete' || (document.readyState === undefined && elLast[elLast.length-1] !== undefined) ){
-  fireDOMReady({"type": "readyState_alreadyComplete"});
-  //add something here to fire only the window.load events added by this instance of ddp
-  fireEvent(document, 'ready', {"cancelable":false});
-}
-else{
-  //code block below taken almost straight-up from jQuery (credit to Diego Perini and John Resig)
-  if(document.attachEvent){
-    document.attachEvent('onreadystatechange', function checkstate(){
-      if(document.readyState == 'complete'){
-        document.detachEvent('onreadystatechange', checkstate);
-        fireDOMReady({"type": "readyState"});
-      }
-    });
-    
-    //not inside an iframe
-    if(window == top){
-      setTimeout(function(){
-        try{ document.documentElement.doScroll("left"); }
-        catch(e){
-          if(!fireDOMReady.done){
-            setTimeout(arguments.callee, 0);
-          } 
-          return;
-        }
-        fireDOMReady({"type": "doScroll"});
-      }, 0);
-    }
-  }
-
-  //if the browser supports the DOMContentLoaded event,
-  //then we'll just attach a handler and use it to fire our custom document "ready"
-  _events.listen(document, 'DOMContentLoaded', fireDOMReady);
-  //fallback to firing the document "ready" on window "load" if it hasn't already been fired by another method
-  _events.listen(window, 'load', fireDOMReady);
-}
-
-
+//run the routine to check the document ready state and fire the event.
+_._checkReady();
 
 })(
     //try to get a reference to the global object, regardless of the scope the code is executed in

@@ -16,16 +16,30 @@
 		<!-- Replace favicon.ico & apple-touch-icon.png in the root of your domain and delete these references -->
 		<link rel="shortcut icon" href="/favicon.ico" />
 		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+		<style type="text/css">
+			.cruxRox{
+				border: solid 1px #f00;
+			}
+			body.cruxRox{
+				border: solid 1px #00f;
+			}
+		</style>
 		<script type="text/javascript" src="crux.core.js"></script>
 		<script type="text/javascript">
-			var b = crux.dom('body');
-			//alert(crux.toArray.toString());
+			var dc;
+			crux.ready(function(){
+			  dc = crux.dom('body, div');
+			  dc.addClass('cruxRox');
+			  crux.listen("#inputElement", 'enterkeypress', function(o){ console.log(o);});
+			  crux.listen("div", "DOMMouseScroll", function(o){ console.log(o); });
+			});
 		</script>
 	</head>
 
 	<body>
-		<div>
+		<div style="height: 500px;">
 			Content
+			<input id="inputElement" type="text" />
 		</div>
 	</body>
 </html>
