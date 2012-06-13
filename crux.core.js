@@ -184,7 +184,7 @@ var _ = window[_externalName] = {
   str      : _str,
   ajax     : _ajax,
   _cache   : _cache,
-  Object   : CruxObject,
+  //Object   : CruxObject,
 
   ready: function ready(fn){ _events.listen(document, 'ready', fn); },
   
@@ -262,11 +262,6 @@ var _ = window[_externalName] = {
     return v;
   },
   
-  
-  //***************************************************************
-  //dom
-  //
-  dom: function dom(selector, context){ return new _.DOMSelection(selector, context, arguments[2]); },
   
   //***************************************************************
   //mergeIndexes
@@ -637,40 +632,46 @@ var _ = window[_externalName] = {
       //fallback to firing the document "ready" on window "load" if it hasn't already been fired by another method
       _events.listen(window, 'load', fireDOMReady);
     }
-  }
-
+  },
+  
+  
+  //-----------------------------------------------
+  //-----------------CRUX OBJECT-------------------
+  //-----------------------------------------------
+  
+  "Object": (function(){
+    function CruxObject(){}
+    //CruxObject.subclass = function(obj, name){ return (new CruxObject).subclass.apply(this, arguments); };
+    CruxObject.prototype = {
+      constructor : CruxObject,
+      _super      : Object,
+      toString    : function toString(){     return '[object '+(this.className || 'Object')+']';              },
+      augment     : function augment(obj){   _.extend(this.constructor.prototype, obj); return this;          },
+      mergeIndexes: function mergeIndexes(){ return _.mergeIndexes.apply(this, _.toArray([this], arguments)); },
+      subclass    : function subclass(obj, name){
+        name = name || (obj ? obj.className : null) || this.className || '';
+        //Create a function using the Function constructor so we can name the inner returned function with the className
+        //Within the returned function, execute the default constructor in the context of the new object.
+        //If the subclass has or inherited an init method, execute it with any arguments passed to this consructor
+        var sub = Function('return function ' + name + '(){ arguments.callee.__parentContructor__.call(this); this.init && this.init.apply(this, arguments);}')();
+        sub.prototype = _.extend(this, obj);
+        this.className = name;
+        this._super = sub.__parentContructor__ = this.constructor;
+        this._super.subclasses = (this._super.subclasses ? this._super.subclasses.push(sub): [sub]) 
+        return this.constructor = sub;
+      }
+    };
+    return CruxObject;
+  })()
 };
 
 
-//-----------------------------------------------
-//-----------------CRUX OBJECT-------------------
-//-----------------------------------------------
-function CruxObject(){};
-//CruxObject.subclass = function(obj, name){ return (new CruxObject).subclass.apply(this, arguments); };
-CruxObject.prototype = {
-  constructor : CruxObject,
-  _super      : Object,
-  toString    : function toString(){     return '[object '+(this.className || 'Object')+']';              },
-  augment     : function augment(obj){   _.extend(this.constructor.prototype, obj); return this;          },
-  mergeIndexes: function mergeIndexes(){ return _.mergeIndexes.apply(this, _.toArray([this], arguments)); },
-  subclass    : function subclass(obj, name){
-    name = name || (obj ? obj.className : null) || this.className || '';
-    //Create a function using the Function constructor so we can name the inner returned function with the className
-    //Within the returned function, execute the default constructor in the context of the new object.
-    //If the subclass has or inherited an init method, execute it with any arguments passed to this consructor
-    var sub = Function('return function ' + name + '(){ arguments.callee.__parentContructor__.call(this); this.init && this.init.apply(this, arguments);}')();
-    sub.prototype = _.extend(this, obj);
-    this.className = name;
-    this._super = sub.__parentContructor__ = this.constructor;
-    this._super.subclasses = (this._super.subclasses ? this._super.subclasses.push(sub): [sub]) 
-    return this.constructor = sub;
-  }
-};
+
 
 //-----------------------------------------------
 //-----------------COLLECTION--------------------
 //-----------------------------------------------
-var Collection = (new CruxObject).subclass({
+_.Collection = (new _.Object).subclass({
   className  : 'Collection',
   init: function(){
     this.length = 0;
@@ -1812,7 +1813,7 @@ _.fire      = _events.fire;
 
 
 //-----------------------------------------------------------------------------------------------------
-// String manupulation module
+// String Module
 //-----------------------------------------------------------------------------------------------------
 _.extend(_str, {
   isUpper: function isUpper(str){ return (str = str + '') == str.toUpperCase(); },
@@ -1967,7 +1968,7 @@ _.extend(_str, {
 //---------------------------------------------------------------
 // DOM Module
 //---------------------------------------------------------------
-_.extend(_.dom, {
+_.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(selector, context, arguments[2]); }, {
   //we can't assign this until Sizzle is instanciated at the end of this file 
   selectorEngine: null, //by default will be Sizzle()
   selectorEngine_matches: null, //by default will be Sizzle.matches()
@@ -2329,106 +2330,96 @@ _.extend(_.dom, {
       "documentWidth"   : 0,
       "documentHeight"  : 0
     };
-  }
-  
-});
-
-
-
-//-----------------------------------------------
-//----------------DOM SELECTION------------------
-//-----------------------------------------------
-
-var DOMSelection = _.DOMSelection = (new Collection).subclass({
-  className : 'DOMSelection',
-  
-  init: function(selector, context){
-    this.length = 0;
-    this.selectionContext = (context && this.resolve(context, document)[0]) || document;
-    arguments.length && this.add.apply(this, arguments);
   },
   
-  add: function(selector, context){
-    var arg, sc = context && this.resolve(context, document)[0] || this.selectionContext;
-    //if there was no valid selector supplied, don't resolve it or call unique()
-    if(!selector){ return this; }
+  //-----------------------------------------------
+  //----------------DOM SELECTION------------------
+  //-----------------------------------------------
+  DOMSelection: (new _.Collection).subclass({
+    className : 'DOMSelection',
     
-    selector = _.isArray(selector) || selector instanceof DOMSelection ? selector : [selector];
-    for(var i=0, l=selector.length; i<l; i++){
-      arg = selector[i];
-      if(_.isString(arg)){
-        //true indicates that the mergeing process should not introduce any duplicates.
-        this.mergeIndexes(this.resolve(arg, sc), true);
+    init: function(selector, context){
+      this.length = 0;
+      this.selectionContext = (context && this.resolve(context, document)[0]) || document;
+      arguments.length && this.add.apply(this, arguments);
+    },
+    
+    add: function(selector, context){
+      var arg, sc = context && this.resolve(context, document)[0] || this.selectionContext;
+      //if there was no valid selector supplied, don't resolve it or call unique()
+      if(!selector){ return this; }
+      
+      selector = _.isArray(selector) || selector instanceof _.dom.DOMSelection ? selector : [selector];
+      for(var i=0, l=selector.length; i<l; i++){
+        arg = selector[i];
+        if(_.isString(arg)){
+          //true indicates that the mergeing process should not introduce any duplicates.
+          this.mergeIndexes(this.resolve(arg, sc), true);
+        }
+        else if(_.isElement(arg)){
+          this.push(arg);
+        }
       }
-      else if(_.isElement(arg)){
-        this.push(arg);
+      //remove duplicates
+      return this.unique();
+    },
+  
+    drop: function drop(selector){
+      var ar = _.dom.selectorEngine_matches(selector, this), i = ar.length;
+      while(i--){ this.splice(this.indexOf(ar[i]), 1); }
+      return this;
+    },
+    
+    wait: function wait(msec, fn, data){
+      var ts = this;
+      window.setTimeout(function(){ fn.call(ts, data); ts = null; }, msec);
+      return this;
+    },
+    
+    append: function append(parent){
+      var df;
+      if(this.length){
+        parent = _.isString(parent) ? this.resolve(parent, document)[0] : parent;
+        df = document.createDocumentFragment();
+        this.DOMElements().forEach(function(el){ df.appendChild(el); });
+        parent.appendChild(df);
       }
+      return this;
+    },
+    
+    resolve: function resolve(selector, context, ar){
+      //optimise for the case when we're just passing a single element
+      if(_.isElement(selector) && !ar && !context){ return [selector]; }
+      //run the selector through Sizzle or other dom selector library
+      return _.dom.selectorEngine(selector, context, ar);
+    },
+    
+    find          : function find(selector){ return new this.constructor(_.dom.selectorEngine_matches(this, selector), this.selectionContext); },
+    remove        : function remove(){ this.DOMElements().forEach(function(el){ el && el.parentNode && el.parentNode.removeChild(el); }); return this; },
+    addClass      : function addClass(str){    return _.dom.addClass(this, str);    },
+    removeClass   : function removeClass(str){ return _.dom.removeClass(this, str); },
+    show          : function show(){ this.DOMElements().forEach(function(el){ el.style.display = ''; return this;});     },
+    hide          : function hide(){ this.DOMElements().forEach(function(el){ el.style.display = 'none'; return this;}); },
+    climb         : function climb(fn){ return this.DOMElements().every(function(el){ return _.dom.climb(el, fn); }); },      
+    //***************************************************************
+    //childrenOf 
+    //returns a new DOMCollection of elements that are DOM descendents of the supplied parent element
+    childrenOf: function childrenOf(parent, jumpIframes){
+      return this.DOMElements().filter(function(el){ return _.dom.childOf(el, parent, jumpIframes); });
+      //return elements.length ? elements.every(function(el){ return _.dom.childOf(el, parent, jumpIframes); }) : false;
+    },
+    
+    debug: function(str){
+      try{
+        console.log((new Date).getTime() + ': ' + (str || ''));
+        this.forEach(function(el){ console.log(el); });
+      }
+      catch(e){}
+      return this;
     }
-    //remove duplicates
-    return this.unique();
-  },
-
-  drop: function drop(selector){
-    var ar = _.dom.selectorEngine_matches(selector, this), i = ar.length;
-    while(i--){ this.splice(this.indexOf(ar[i]), 1); }
-    return this;
-  },
+  })
   
-  wait: function wait(msec, fn, data){
-    var ts = this;
-    window.setTimeout(function(){ fn.call(ts, data); ts = null; }, msec);
-    return this;
-  },
-  
-  append: function append(parent){
-  	var df;
-  	if(this.length){
-      parent = _.isString(parent) ? this.resolve(parent, document)[0] : parent;
-      df = document.createDocumentFragment();
-      this.DOMElements().forEach(function(el){ df.appendChild(el); });
-      parent.appendChild(df);
-    }
-    return this;
-  },
-  
-  resolve: function resolve(selector, context, ar){
-    //optimise for the case when we're just passing a single element
-    if(_.isElement(selector) && !ar && !context){ return [selector]; }
-    //run the selector through Sizzle or other dom selector library
-    return _.dom.selectorEngine(selector, context, ar);
-  },
-  
-  find          : function find(selector){ return new this.constructor(_.dom.selectorEngine_matches(this, selector), this.selectionContext); },
-  remove        : function remove(){ this.DOMElements().forEach(function(el){ el && el.parentNode && el.parentNode.removeChild(el); }); return this; },
-  addClass      : function addClass(str){    return _.dom.addClass(this, str);    },
-  removeClass   : function removeClass(str){ return _.dom.removeClass(this, str); },
-  show          : function show(){ this.DOMElements().forEach(function(el){ el.style.display = ''; return this;});     },
-  hide          : function hide(){ this.DOMElements().forEach(function(el){ el.style.display = 'none'; return this;}); },
-  climb         : function climb(fn){ return this.DOMElements().every(function(el){ return _.dom.climb(el, fn); }); },      
-  //***************************************************************
-  //childrenOf 
-  //returns a new DOMCollection of elements that are DOM descendents of the supplied parent element
-  childrenOf: function childrenOf(parent, jumpIframes){
-  	return this.DOMElements().filter(function(el){ return _.dom.childOf(el, parent, jumpIframes); });
-    //return elements.length ? elements.every(function(el){ return _.dom.childOf(el, parent, jumpIframes); }) : false;
-  },
-  
-  debug: function(str){
-    try{
-      console.log((new Date).getTime() + ': ' + (str || ''));
-      this.forEach(function(el){ console.log(el); });
-    }
-    catch(e){}
-    return this;
-  }
 });
-
-
-
-//export to the externalName
-_.Object = CruxObject;
-_.Collection = Collection;
-_.DOMSelection = DOMSelection;
 
 
 
