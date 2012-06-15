@@ -164,10 +164,9 @@ var _detected = {
     el.innerHTML = '<p class="X"></p>';
     return el.children[0].getAttribute('className') == 'X' ? 'className' : 'class';
   })(),
-  
   //create an element to test if the styleFloat property is not undefined
   floatProperty: (function(){ return (_ce('div').style.styleFloat !== undefined) ? 'styleFloat' : 'cssFloat'; })(),
-  
+  //detect which event module the browser uses to create custom event types
   customEventsModule: (function(){
     try{ document.createEvent('CustomEvent'); return 'CustomEvent'; }
     catch(e){ return 'HTMLEvents'; }
@@ -184,7 +183,6 @@ var _ = window[_externalName] = {
   str      : _str,
   ajax     : _ajax,
   _cache   : _cache,
-  //Object   : CruxObject,
 
   ready: function ready(fn){ _events.listen(document, 'ready', fn); },
   
@@ -194,6 +192,7 @@ var _ = window[_externalName] = {
   isString   : function isString(v){   return _toString.call(v) == '[object String]';   },
   isFunction : function isFunction(v){ return _toString.call(v) == '[object Function]'; },
   isDate     : function isDate(v){     return _toString.call(v) == '[object Date]';     },
+  
   //***************************************************************
   //isElement
   isElement  : function isElement(v, allowDocument){
@@ -201,6 +200,7 @@ var _ = window[_externalName] = {
     //1 = ELEMENT_NODE, 9 = DOCUMENT_NODE
     return !!(v && (t = v.nodeType) && (t == 1 || (allowDocument && t == 9)));
   },
+  
   //***************************************************************
   //isObject
   //tests for plain objects {} which are not strings or arrays or DOMElements or functions (and not null) 
@@ -217,9 +217,29 @@ var _ = window[_externalName] = {
   },
   
   //--------------------------------------------------
+  //extendKeys
+  //copies only properties from multiple objects into one object if
+  //they are present in the supplied "keys" array.
+  extendKeys: function extendKeys(keys, obj, obj1, obj2){
+    var key, source, i, il, j, jl = keys.length;
+    //if(keys === true){ return _.extend.apply(_slice.call(arguments, 1)); }
+    obj = obj || {};
+    for(var i=1, l=arguments.length; i<l; i++){
+      source = arguments[i];
+      j = jl;
+      while(j--){
+        key = keys[j];
+        if(_hasOwnProperty.call(source, key)){
+          obj[key] = source[key];
+        }
+      }
+    }
+    return obj;
+  },
+  
+  //--------------------------------------------------
   //extend
   //copies properties from multiple objects into one object
-  //
   extend: function extend(obj, obj1, obj2){
     var key, source;
     obj = obj || {};
@@ -301,7 +321,7 @@ var _ = window[_externalName] = {
     var cloned, key;
     //obj == null also matches obj === undefined through type coersion
     if(obj == null || typeof obj !== 'object'){ return obj; }
-    if(_.isElement(obj)){ return _.dom.cloneElement.apply(this, arguments); }
+    if(_.isElement(obj)){ return _dom.cloneElement.apply(this, arguments); }
     constructor && (cloned = new (constructor === true ? (obj.constructor || Object) : constructor));
     cloned = cloned || {};
     clone.depth = (clone.depth === undefined) ? 0 : clone.depth;
@@ -379,8 +399,8 @@ var _ = window[_externalName] = {
       }
       //return the array of accumulated indexes
         return ar;
-      }
-    ,
+    }
+  ,
    
  
     
@@ -577,8 +597,8 @@ var _ = window[_externalName] = {
   _checkReady: function(){
     //set the default trap events
     //(when listen tries to add more handlers after they've fired once, the "added" handler is executed immediately)
-    _events.setTrap(window, 'load');
-    _events.setTrap(document, 'ready');
+    _events.latch(window, 'load');
+    _events.latch(document, 'ready');
     
     function fireDOMReady(objEvent){
       if(fireDOMReady.done){
@@ -657,7 +677,7 @@ var _ = window[_externalName] = {
         sub.prototype = _.extend(this, obj);
         this.className = name;
         this._super = sub.__parentContructor__ = this.constructor;
-        this._super.subclasses = (this._super.subclasses ? this._super.subclasses.push(sub): [sub]) 
+        this._super.subclasses = (this._super.subclasses ? (this._super.subclasses.push(sub) && this._super.subclasses): [sub]) 
         return this.constructor = sub;
       }
     };
@@ -701,74 +721,77 @@ _.Collection = (new _.Object).subclass({
     }
     this.length = newLength + 1;
     return this;
-  }
+  },
+  listen  : function(type, listener){ _events._demux.apply(null, _.mergeIndexes([_events.listen, this], arguments)); },
+  unlisten: function(type, listener){ _events._demux.apply(null, _.mergeIndexes([_events.unlisten, this], arguments)); },
+  fire: function(types, obj, manualBubble){ _events._demux.apply(null, _.mergeIndexes([_events.fire, this], arguments)); },
 });
 
 
 
-
+(function(){
 //----------------------------------------------------------------------------------
 //EVENTS MODULE
 //----------------------------------------------------------------------------------
 _.extend(_events, {
   /***************************************************************/
-  //listen
+  //---------------------------------------------------------------------------
+  //_demux
+  //takes arguments for the event methods and demultiplexes then from arrays,
+  //collections and space separated strings, calling the "this" for each combination of arguments
+  // eg. _demux.call(_listen, "div, .someClass", ")
+  //---------------------------------------------------------------------------
+  
+  _demux: function _demux(fn, demuxTarget, targets, types){
+    //console.log(arguments);
+    var successes = 0, i, il, j, jl;
+    //resolve the selector string if that's what "targets" contains
+    if(demuxTarget && !(targets = _.isString(targets) ? _dom.selectorEngine(targets) : targets)){ return 0; }
+    if(_.isString(types)){
+      //trim whitespace from either end and replace multiple whitespace chars with a single space
+      types = _.str.trim(types).replace(/\s{2,}/g, ' ');
+      //split space separated words into an array
+      types = (types.indexOf(' ') > -1 ? types.split(' ') : types);
+    }
+    //if null or undefined, make it an asterisk
+    types = (types == null) ? '*' : types;
+    //an array of event types can be passed and each event type on the target element will have the listener added to it
+    types = (_.isArray(types) || types instanceof _.Collection) ? types : [types];
+    //an array of event targets can be passed and each target element will have the event type listener added to it
+    targets = (!demuxTarget || _.isArray(targets) || targets instanceof _.Collection) ? targets : [targets];
+    for(i=0, il=(demuxTarget ? targets.length : 0); i<il; i++){
+      for(j=0, jl=types.length; j<jl; j++){
+        successes += fn.apply(this, _.toArray([(demuxTarget ? targets[i] : targets), types[j]], _slice.call(arguments, 4)));
+      }
+    }
+    return successes;
+  },
+  
+  listenMany  : function listenMany(ar, types, listener){ return _events._demux.apply(null, _.toArray([_events.listen, true], arguments)); },
+  unlistenMany: function unlistenMany(ar, types, listener){ return _events._demux.apply(null, _.toArray([_events.unlisten, true], arguments)); },
+  fireMany    : function fireMany(ar, types, obj, manualBubble){ return _events._demux.apply(null, _.toArray([_events.fire, true], arguments)); },
+  
+  listenOnce : function listenOnce(target, type, listener){ return _events.listen(target, type, listener, arguments[3], true); },
+  
+  //listen  
   listen: function listen(target, type, listener){
-    var noWrap = arguments[3], //don't show the internally used "noWrap" argument
+      var noWrap = arguments[3], //don't show the internally used "noWrap" argument
         once = arguments[4],
         emulate = _events.emulate,
         eventNamespace = '',
         arResults,
         i, l, //iterator and length for looping
-        savedSelector,
-        trapped,
+        savedSelector = target,
+        e,
         listeners,
         listenerContainer;
     
-    if(_.isString(type)){
-      type = _.str.trim(type);
-      //TODO: replace multiple spaces with one space
-      //if type is a space delimited string of multiple event types,
-      //remove any leading or trailing whitespace and convert it to an array
-      if(type.indexOf(' ') > -1){
-        type = type.split(' ');
-      }
+    if(_.isString(target) || (_.isString(type) && type.indexOf(' ') > -1) || _.isArray(type)){
+      return _events._demux.apply(this, _.toArray([listen, _.isString(target)], arguments));
     }
     
-    //resolve a selector string into element references
-    if(_.isString(target)){
-      savedSelector = target;
-      //return an array of matched elements
-      target = _.dom.selectorEngine(target, document);
-      //if it's 1, then get the first element in the array, if 0 then it's undefined
-      if(target.length < 2){
-        target = target[0];
-      }
-    }
-    
-    //an array of event targets can be passed and each target element will have the event type listener added to it
-    if(_.isArray(target)){
-      arResults = [];
-      for(i=0, l=type.length; i<l; i++){
-        arResults.push(listen(target[i],  type, listener, noWrap));
-      }
-      return arResults;
-    }
-    //an array of event types can be passed and each event type on the target element will have the listener added to it
-    if(_.isArray(type)){
-      arResults = [];
-      for(i=0, l=type.length; i<l; i++){
-        arResults.push(listen(target, type[i], listener, noWrap));
-      }
-      return arResults;
-    }
-    
-    //separate the namespace from the event type, if both were included
-    if(type.indexOf('.') > -1){
-      var tmpParts = type.split('.');
-      type = tmpParts.pop();
-      eventNamespace = tmpParts.join('.');
-    }
+    //we don't accept the asterisk in this method
+    type = (type == '*') ? null : type;
     
     //if we don't have all the arguments we need..
     if(!target || !listener || !type){
@@ -788,17 +811,22 @@ _.extend(_events, {
       //try to log the error to the console
       try{ console.log(strErrDesc); }catch(e){}
       //return null to indicate that there was a problem adding the listener
-      return null;
+      return 0;
     }
+    
+    //separate the namespace from the event type, if both were included
+    if(type.indexOf('.') > -1){
+      eventNamespace = type.split('.');
+      type = eventNamespace.pop();
+      eventNamespace = eventNamespace.join('.');
+    }
+    //console.log('ns', eventNamespace, 'ty', type);
     
     //get the current listener container or create a new one
     listenerContainer = _.getData(target, '__listeners__') || _.setData(target, '__listeners__', {});
-    
     //get the listeners array if it exists and check if it's an array, if it's not then
-    if(!_.isArray(listeners = listenerContainer[type])){
-      //create a new array and assign it to both the listener container and our local variable "listeners"
-      listeners = listenerContainer[type] = [];
-    }
+    //create a new array and assign it to both the listener container and our local variable "listeners"
+    listeners = (_.isArray(listeners = listenerContainer[type])) ? listeners : listenerContainer[type] = [];
   
     
     //emulate events that are in "emulatedEvents" if the browser doesn't support them
@@ -807,14 +835,15 @@ _.extend(_events, {
       listeners.emulated = true;
       //add any prerequisite emulated events (ie. mouseenter emulation depends on the mouseleave event and vise-versa)
       if(emulate[type].prerequisiteEvents){
-        emulate[type].prerequisiteEvents.split(' ').forEach(function(emuEventType){
-          _events.listen(target, emulate[emuEventType].attachToEvent, emulate[emuEventType].fn, true);
+        emulate[type].prerequisiteEvents.split(' ').forEach(function(emuType){
+          //add a listener for the prerequisite event type (and don't return a CruxEvent object to the listener, just the plain browser event)
+          _events.listen(target, emulate[emuType].attachToEvent, emulate[emuType].fn, true);
         });
       }
       //if it's a one-time event
-      if(emulate[type].isTrapEvent){
+      if(emulate[type].isLatch){
         //set it as such
-        _events.setTrap(target, type);
+        _events.latch(target, type);
       }
       //add the listener that performs the emulation to the event that can be used to trigger the emulation
       _events.listen(emulate[type].attachToElement || target, emulate[type].attachToEvent, function(e){ return emulate[type].fn && emulate[type].fn.call(target, e); }, true);
@@ -822,10 +851,10 @@ _.extend(_events, {
     
     
     //if this is a one-time event (such as window 'load'), and it has already been fired,  
-    if(trapped = _events.trapFired(target, type)){
+    if(e = _events.latchClosed(target, type)){
       //then execute the event listener right away (using the event target as "this" and passing a new event object to it).
-      listener.call(target, trapped);
-      return 4; //indicate a one time event re-fire
+      listener.call(target, e);
+      return; //indicate a one time event re-fire
     }
     
     //create a function to repair the scope and redirect the proper event object. 
@@ -839,7 +868,7 @@ _.extend(_events, {
       }
       
       //if there is no event namespace or the event namespace matches the listener namespace
-      if(!objEvent.eventNamespace || objEvent.eventNamespace == fn.namespace){
+      if(!objEvent.eventNamespace || _events.inNamespace(objEvent.eventNamespace, fn.namespace)){
         //white a property on the event object with the current listener namespace 
         objEvent.listenerNamespace = fn.namespace;
         if(once){
@@ -930,14 +959,81 @@ _.extend(_events, {
     }
     
     //return the event model that was used to attach the listener
-    return listeners.__eventModel__;
+    //return listeners.__eventModel__;
+    return 1;
   },
   
   
-  listenOnce : function listenOnce(target, type, listener){
-    return _events.listen(target, type, listener, arguments[3], true);
+  //------------------------------------------------------------------------------
+  //unlisten
+  //------------------------------------------------------------------------------
+  unlisten: function unlisten(target, type, listener){
+    var eventNamespace = '',
+        returnValue = [],
+        arResults,
+        listeners,
+        savedSelector,
+        listenerContainer,
+        tmpParts, i, l, fn;
+        
+    type = (type == null) ? '*' : type;
+    //see if there was a namespace included in the event type
+    if(type.indexOf('.') > -1){
+      eventNamespace = type.split('.');
+      type = eventNamespace.pop();
+      eventNamespace = eventNamespace.join('.');
+    }
+    
+    if(_.isString(target) || (_.isString(type) && type.indexOf(' ') > -1) || _.isArray(type)){
+      return _events._demux.apply(this, _.toArray([unlisten, _.isString(target)], arguments));
+    }
+    
+    //if we aren't able to get a reference to the ddplisteners object, quit
+    if(!(listenerContainer = _.getData(target, '__listeners__'))){
+      return returnValue;
+    }
+    
+    if(type == '*'){
+      arResults = [];
+      for(var key in listenerContainer){
+        if(_hasOwnProperty.call(listenerContainer, key)){
+          _push.apply(arResults, unlisten(target, eventNamespace ? eventNamespace + '.' + key : key, listener));
+        }
+      }
+      return arResults;
+    }
+    
+   
+    //if there is an array of listeners for this event type
+    if(_.isArray(listeners = listenerContainer[type])){
+      //record the array length and set a decrementor
+      i = l = listeners.length;
+      while(i--){
+        fn = listeners[i];
+        
+        if((fn.innerFn == listener || !listener) && (fn.namespace == eventNamespace || eventNamespace == '*')){
+          listeners.splice(i,1);
+          
+          if(listeners.__eventModel__ == 1){
+            target.removeEventListener(type, fn, false);
+          }
+          else if(listeners.__eventModel__ == 2){
+            target.detachEvent('on' + type, fn);
+          }
+          else if(target['on' + type] == _events._executeListeners){
+            target['on' + type] = undefined;
+          }
+          //if the last event listener was just removed. clean up arrays and tracking objects?
+          if(--l==0){}
+          //a function reference was supplied
+          if(listener){ return fn.innerFn; }
+          returnValue.push(fn.innerFn);
+        }
+      }
+    }
+    
+    return returnValue;
   },
-  
   
   
   fire: function fire(target, type, obj, manualBubble){
@@ -952,48 +1048,20 @@ _.extend(_events, {
     //alow for the single object parameter that contains all the relevent arguments
     if(arguments.length==1){
       obj = target;
-      type = target.type;
-      target = target.target;
+      target = obj.target;
+      type = obj.type;
+      manualBubble = obj.manualBubble;
+    }
+    
+    if(_.isString(target) || (_.isString(type) && type.indexOf(' ') > -1) || _.isArray(type)){
+      return _events._demux.apply(this, _.toArray([fire, _.isString(target)], arguments));
     }
   
-    //if type is a space delimited string of multiple event types,
-    if(type.indexOf && type.indexOf(' ') > -1){
-      type = type.split(' '); //convert it to an array
-    }
-    
-    if(_.isString(target)){
-      //return an array of matched elements
-      target = _.dom.selectorEngine(target, document);
-      if(target.length < 2){
-        target = target[0];
-      }
-    }
-  
-    //an array of event targets can be passed and each target element will have the event type handler added to it
-    if(_.isArray(target)){
-      arResults = [];
-      l=target.length;
-      for(i=0; i<l; i++){
-        arResults.push(fire(target[i],  type, obj, manualBubble));
-      }
-      return arResults;
-    }
-    
-    //an array of event types can be passed and each event type on the target element will have the handler added to it
-    if(_.isArray(type)){
-      arResults = [];
-      l=type.length;
-      for(i=0; i<l; i++){
-        arResults.push(fire(target, type[i], obj, manualBubble));
-      }
-      return arResults;
-    }
-    
     //see if there was a namespace included in the event type
-    var tmpParts = type.split('.');
-    if(tmpParts.length>1){
-      eventNamespace = tmpParts[0];
-      type = tmpParts[1];
+    if(type.indexOf('.') > -1){
+      eventNamespace = type.split('.');
+      type = eventNamespace.pop();
+      eventNamespace = eventNamespace.join('.');
     }
     
     
@@ -1062,121 +1130,6 @@ _.extend(_events, {
   
   
   
-  //------------------------------------------------------------------------------
-  //unlisten
-  //------------------------------------------------------------------------------
-  unlisten: function unlisten(target, type, listener){
-    var eventNamespace = '',
-        returnValue = [],
-        arResults,
-        listeners,
-        savedSelector,
-        listenerContainer,
-        tmpParts,i, l, fn;
-        
-    if(type === null || type === undefined){
-      type = '*';
-    }
-        
-    //if type is a space delimited string of multiple event types,
-    if(type.indexOf && type.indexOf(' ') > -1){
-      type = type.split(' '); //convert it to an array
-    }
-    
-    if(_.isString(target)){
-      savedSelector = target;
-      //return an array of matched elements
-      target = _.dom.selectorEngine(target, document);
-      if(target.length < 2){
-        target = target[0];
-      }
-    }
-    
-    //an array of event targets can be passed and each target element will have the event type listener added to it
-    if(_.isArray(target)){
-      arResults = [];
-      l=target.length;
-      for(i=0; i<l; i++){
-        arResults.push(unlisten(target[i],  type, listener));
-      }
-      return arResults;
-    }
-    
-    //an array of event types can be passed and each event type on the target element will have the listener added to it
-    if(_.isArray(type)){
-      arResults = [];
-      l=type.length;
-      for(i=0; i<l; i++){
-        arResults.push(unlisten(target, type[i], listener));
-      }
-      return arResults;
-    }
-    
-    //see if there was a namespace included in the event type
-    if((tmpParts = type.split('.')).length>1){
-      eventNamespace = tmpParts[0];
-      type = tmpParts[1];
-    }
-    
-    //listenerContainer = getData(target, 'ddp_listeners'); //gh, 5-jan-2012
-    
-    //if we aren't able to get a reference to the ddplisteners object, quit
-    if(!(listenerContainer = _.getData(target, '__listeners__'))){
-      return returnValue;
-    }
-    
-    if(type == '*'){
-      arResults = [];
-      for(var key in listenerContainer){
-        if(_hasOwnProperty.call(listenerContainer, key)){
-          _push.apply(arResults, unlisten(target, eventNamespace ? eventNamespace + '.' + key : key, listener));
-        }
-      }
-      return arResults;
-    }
-    
-   
-    //if there is an array of listeners for this event type
-    if(_.isArray(listeners = listenerContainer[type])){
-      //record the array length and set a decrementor
-      i = l = listeners.length;
-      while(i--){
-        fn = listeners[i];
-        
-        if((fn.innerFn == listener || !listener) && (fn.namespace == eventNamespace || eventNamespace == '*')){
-          listeners.splice(i,1);
-          
-          if(listeners.__eventModel__ == 1){
-            target.removeEventListener(type, fn, false);
-          }
-          else if(listeners.__eventModel__ == 2){
-            target.detachEvent('on' + type, fn);
-          }
-          else if(target['on' + type] == _events._executeListeners){
-            target['on' + type] = undefined;
-          }
-          
-          if(--l==0){
-            //
-            //the last event listener was just removed.
-            //clean up arrays and tracking objects?
-            //
-          }
-          
-          //a function reference was supplied
-          if(listener){
-            return fn.innerFn;
-          }
-          else{
-            returnValue.push(fn.innerFn);
-          }
-        }
-      }
-    }
-    
-    return returnValue;
-  },
-  
   
   //--------------------------------------------------------------------------------------------
   //listeners
@@ -1187,6 +1140,10 @@ _.extend(_events, {
         listeners,
         eventNamespace = '',
         i, tmpParts;
+        
+    if(_.isString(target) || (_.isString(type) && type.indexOf(' ') > -1) || _.isArray(type)){
+      return _events._demux.apply(this, _.toArray([listeners, _.isString(target)], arguments));
+    }
         
     if(type === null || type === undefined){
       type = '*';
@@ -1220,45 +1177,64 @@ _.extend(_events, {
     }
     return arResults;
   },
-  
-  
-  setTrap: function setTrap(target, type){
+ 
+  latch: function latch(target, type){
+    if(_.isString(target) || (_.isString(type) && type.indexOf(' ') > -1) || _.isArray(type)){
+      return _events._demux.apply(this, _.toArray([latch, _.isString(target)], arguments));
+    }
     //if the element has already been assigned as a "one time event" for this event type
-    //don't overwrite the values already present 
-    if(_.getData(target, '__TRAP_EVENT__' + type + '_fired')){ return; }
+    //don't overwrite the values already present
+    if(_.getData(target, '__TRAP_EVENT__' + type + '_fired')){ return 0; }
     //set a flag so that we can identify this element+event as a "one time" and mark it as "not yet fired"
     _.setData(target, '__TRAP_EVENT__' + type + '_fired', false);
     //add an handler that marks the object+event as fired and preserves the event object
-    return _events.listenOnce(target, type, function(e){
-      _.setData(target, '__TRAP_EVENT__' + type + '_fired', e);
-    });
+    _events.listenOnce(target, type, function(e){ _.setData(target, '__TRAP_EVENT__' + type + '_fired', e); });
+    return 1;
   },
   
-  isTrap: function isTrap(target, type){
+  unlatch: function unlatch(target, type){
+    if(_.isString(target) || (_.isString(type) && type.indexOf(' ') > -1) || _.isArray(type)){
+      return _events._demux.apply(this, _.toArray([unlatch, _.isString(target)], arguments));
+    }
+    _.setData(target, '__TRAP_EVENT__' + type + '_fired', undefined);
+    return 1;
+  },
+    
+  
+  /***************************************************************/
+  //setOneTimeEvent
+  //flags an event on an object as a "one time event"
+  relatch: function relatch(target, type){
+    if(_.isString(target) || (_.isString(type) && type.indexOf(' ') > -1) || _.isArray(type)){
+      return _events._demux.apply(this, _.toArray([relatch, _.isString(target)], arguments));
+    }
+    var e = _events.latchClosed(target, type);
+    //is one, but hasn't fired yet so it doesn't need to be reset 
+    if(e === false){ return 0; }
+    //if it's already been "closed", unlatch it
+    e && _unlatch(target, type);
+    //re-set up the trap event
+    _latch(target, type);
+    return 1;
+  },
+  
+  
+  isLatch: function isLatch(target, type){
     var d = _.getData(target, '__TRAP_EVENT__' + type + '_fired')
     //if the element has already been assigned as a "trap event" for this event type 
     return !!(d === false || d);
   },
   
   //can return undefined, false, or an event object
-  trapFired: function trapFired(target, type){ return _.getData(target, '__TRAP_EVENT__' + type + '_fired'); },
-
-  /***************************************************************/
-  //setOneTimeEvent
-  //flags an event on an object as a "one time event"
-  resetTrap: function resetTrap(target, type){
-    var fired = _events.trapFired(target, type);
-    //is one, but hasn't fired yet so it doesn't need to be reset 
-    if(fired === false){ return; }
-    //has already been fired
-    if(fired){
-      //mark it as "not yet fired"
-      _.setData(target, '__TRAP_EVENT__' + type + '_fired', undefined);
-    }
-    //re-set up the trap event
-    _events.setTrapEvent(target, type);
-  },
+  latchClosed: function latchClosed(target, type){ return _.getData(target, '__TRAP_EVENT__' + type + '_fired'); },
   
+  inNamespaceMatch: function namespaceMatch(eventNS, listenerNS){
+    if(eventNS == listenerNS){ return true; }
+    eventNS = eventNS.split('.');
+    listenerNS = listenerNS.split('.');
+    
+    //objEvent.eventNamespace == fn.namespace
+  },
   
   /***************************************************************/
   //Modified from an original posted April 1st, 2009 by kangax
@@ -1312,7 +1288,7 @@ _.extend(_events, {
       "prerequisiteEvents": "mouseleave",
       "fn": function(e){
         //if "relatedTarget"(FF) or "fromElement"(Opera) is not a child of the original event target (this)
-        if(!_.dom.isChild(e.relatedTarget || e.fromElement, this) && !_.getData(this, '__mouseEntered__')){
+        if(!_dom.isChild(e.relatedTarget || e.fromElement, this) && !_.getData(this, '__mouseEntered__')){
           //sorry, adding an expando. memory leakage should be minimal with the boolean value
           _.setData(this, '__mouseEntered__', true);
           //clone the browser generated event object (this preserves mouse coordinates, originating time, etc..)
@@ -1330,7 +1306,7 @@ _.extend(_events, {
       "prerequisiteEvents": "mouseenter",
       "fn": function(e){
         //if "relatedTarget"(FF) or "toElement"(Opera) is not a child of the original event target (this) AND "relatedTarget" is not the original target
-        if(!_.dom.isChild(e.relatedTarget || e.toElement, this) && e.relatedTarget != this){
+        if(!_dom.isChild(e.relatedTarget || e.toElement, this) && e.relatedTarget != this){
           //delete the expando.
           _.setData(this, '__mouseEntered__', undefined);
           //clone the browser generated event object (this preserves mouse coordinates, originating time, etc..)
@@ -1377,7 +1353,7 @@ _.extend(_events, {
     "inview":{
       "attachToEvent": "scroll resize load",
       "attachToElement": window,
-      "isTrapEvent": true,
+      "isLatch": true,
       "fn": function(objWindowEvent){
         var et = _events.Event.prototype.target(objWindowEvent);
         if(et != window && et != document && et != document.documentElement && et !== null)
@@ -1385,8 +1361,8 @@ _.extend(_events, {
         if(_events.trapFired(this, 'inview')){
           return;
         }
-        var bg = _.dom.geometry();
-        var ep = _.dom.position(this, null, true);
+        var bg = _dom.geometry();
+        var ep = _dom.position(this, null, true);
         
         if(bg.viewportHeight + bg.verticalScroll >= ep.y &&
            bg.verticalScroll <= ep.y &&
@@ -1683,8 +1659,9 @@ _.extend(_events, {
   
   Event : (function (){
     function CruxEvent(obj){
-      obj && this.normalize(obj);
+      //this.nativeEvent = {};
       this._defaultPrevented = false;
+      obj && this.normalize(obj);
     }
     CruxEvent.prototype = {
       normalize : function(obj){
@@ -1706,6 +1683,7 @@ _.extend(_events, {
         ctrlKey      : true,
         metaKey      : true,
         shiftKey     : true,
+        type: function(e, t){ return t.type || e.type; },
         bubbles: function(e){ return !!(e.cancelable !== false); },
         cancelable: function(e){ return !(e.bubbles !== true); },
         target: function(e){
@@ -1767,49 +1745,19 @@ _.extend(_events, {
   })()
 });
 
+
+
+
 _.listen    = _events.listen;
 _.unlisten  = _events.unlisten;
 _.listeners = _events.listeners;
 _.fire      = _events.fire;
 
 
-
-
-//-----------------------------------------------------------------------------------------------------
-// AJAX Module
-//-----------------------------------------------------------------------------------------------------
-(function(){
-  _.extend(_ajax, {
-    request: function(){
-      var r = new _ajax.Request;
-      return r;
-    }
-  });
-  
-  var inProgress = [];
-  var Request = (new _.Object).subclass({
-    className: "Request",
-    init: function(params){
-      _events.setTrap(this, 'complete');
-      _events.listen(this, 'start', track);
-      _events.listen(this, 'complete', untrack);
-      this.method = params.method || 'GET';
-      this.parentNode = _ajax;
-    },
-    x: function(){},
-    t: function(){},
-    z: function(){}
-  });
-  
-  function track(e){
-    inProgress.push(e.target);
-  }
-  function untrack(e){
-    inProgress.splice(inProgress.indexOf(e.target), 1);
-  }
-  
+//end events module
 })();
-  
+
+
 
 
 //-----------------------------------------------------------------------------------------------------
@@ -1968,7 +1916,14 @@ _.extend(_str, {
 //---------------------------------------------------------------
 // DOM Module
 //---------------------------------------------------------------
-_.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(selector, context, arguments[2]); }, {
+
+function _dom(selector, context){
+  return new _dom.DOMSelection(selector, context, arguments[2]);
+}
+
+(function(){ //encapulate
+
+_.extend(_.dom = _dom, {
   //we can't assign this until Sizzle is instanciated at the end of this file 
   selectorEngine: null, //by default will be Sizzle()
   selectorEngine_matches: null, //by default will be Sizzle.matches()
@@ -1977,7 +1932,6 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
   //childOf
   //returns true if all elements in the collection are DOM descendents of the supplied dom element, otherwise returns false.
   childOf: function childOf(elChild, elParent, blnBridgeIframes){
-    //var elChild = this.index(0);
     
     if(!_.isElement(elChild) || !_.isElement(elParent, true)){
       return null;
@@ -1991,7 +1945,7 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
       return !!(elParent.compareDocumentPosition(elChild) & 16); //single & is the bitwise AND operator, not a typo (compareDocumentPosition returns a bitmask).
     }
     //fallback to calculating it ourselves
-    return (_.dom.climb(elChild, function(nodes, elParent){ if(this==elParent) return true; }, [elParent], blnBridgeIframes) === true);
+    return (_dom.climb(elChild, function(nodes, elParent){ if(this==elParent) return true; }, [elParent], blnBridgeIframes) === true);
   },
   
   //***************************************************************
@@ -2000,7 +1954,7 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
   cloneElement: function(el, deep, listeners){
     var e = el.cloneNode(deep || false);
     //TODO: make element cloning actually work
-    //apply all the fixes to compensate for browser deficiencies (ie, i'm looking at you)
+    //apply all the fixes to compensate for browser deficiencies (IE, i'm looking at you)
     //copy event handlers to the new element (if specified) 
     listeners && _.cloneListeners(el, e, deep);
     return e;
@@ -2056,7 +2010,7 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
   //returns the effective CSS style on an element
   //TODO: apparently is broken in FF 12
   getStyle: function getStyle(el, str){
-    if(str=='opacity'){ return _.dom.getOpacity(el); }
+    if(str=='opacity'){ return _dom.getOpacity(el); }
     return (window.getComputedStyle && window.getComputedStyle(el, '').getPropertyValue(str))
             || (el.currentStyle && el.currentStyle[_.str.toCamel(str, true)])
             || '';
@@ -2078,7 +2032,7 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
     if(!el || !el.setAttribute){
       return false;
     }
-    if(_.dom.getClass(el) !== str){
+    if(_dom.getClass(el) !== str){
       el.setAttribute(_detected.CSSClassAttribute, str);
     }
     return str;
@@ -2113,11 +2067,11 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
         else if(el){
           re = re || c[str] || (c[str] = new RegExp('\\b' + str + '\\b', 'g'));
           //get the current class string and test it with the regular expression
-          if(!re.test(strClassName = _.str.trim(_.dom.getClass(el)) || '')){
+          if(!re.test(strClassName = _.str.trim(_dom.getClass(el)) || '')){
             strClassName += (strClassName ? ' ' : '') + str;
           }
           //put the modified/filtered class string back in the element 
-          _.dom.setClass(el, strClassName);
+          _dom.setClass(el, strClassName);
         }
       }
     });
@@ -2151,12 +2105,12 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
           el.classList.remove(str);
         }
         //if the class isn't already empty
-        else if(strClass = _.dom.getClass(el)){
+        else if(strClass = _dom.getClass(el)){
           re = re || cache[str] || (cache[str] = new RegExp('\\b' + str + '\\b', 'g'));
           //if the modified string is different than the original
           if(strClass != (strClass = _.str.trim(strClass.replace(re, '')))){
             //update the element with the new class name string
-            _.dom.setClass(el, strClass);
+            _dom.setClass(el, strClass);
           }
         }
       }
@@ -2190,7 +2144,7 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
       if('classList' in el && el.classList.contains){
         arReturn.push(strClassToCheckFor.split(' ').every(function(str){ return (!str ? true : el.classList.contains(str)); }));
       }
-      else if(strClass = _.dom.getClass(el)){
+      else if(strClass = _dom.getClass(el)){
         //
         arReturn.push(strClassToCheckFor.split(' ').every(function(str){
           //return (!str ? true : (getRegExp('hasClass_re1_' + str) || addRegExp('hasClass_re1' + str, new RegExp('\\b' + str + '\\b', 'g'))).test(strClass));
@@ -2219,7 +2173,7 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
       _.forOwnIn(objAttributes, function(k, v){
         var lowerK = k.toLowerCase();
         if(lowerK == 'classname' || lowerK == 'class'){
-          _.dom.addClass(el, v);
+          _dom.addClass(el, v);
         }
         else{
           el.setAttribute(k, v);
@@ -2275,7 +2229,7 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
     
     if(typeof w.innerWidth == 'number'){
       //Non-IE
-      return (_.dom.geometry = function geometry(){
+      return (_dom.geometry = function geometry(){
         var dg = docGeometry();
         var ch = _cache.geometryChanged;
         _cache.geometryChanged = false;
@@ -2291,7 +2245,7 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
     }
     else if(documentElement && (documentElement.clientWidth || documentElement.clientHeight)){
       //IE 6+ in 'standards compliant mode'
-      return (_.dom.geometry = function geometry(){
+      return (_dom.geometry = function geometry(){
         var dg = docGeometry();
         var ch = _cache.geometryChanged;
         _cache.geometryChanged = false;
@@ -2307,7 +2261,7 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
     }
     else if(body && ( body.clientWidth || body.clientHeight)){
       //IE 4 compatible
-      return (_.dom.geometry = function geometry(){
+      return (_dom.geometry = function geometry(){
         var dg = docGeometry();
         var ch = _cache.geometryChanged;
         _cache.geometryChanged = false;
@@ -2349,7 +2303,7 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
       //if there was no valid selector supplied, don't resolve it or call unique()
       if(!selector){ return this; }
       
-      selector = _.isArray(selector) || selector instanceof _.dom.DOMSelection ? selector : [selector];
+      selector = _.isArray(selector) || selector instanceof _dom.DOMSelection ? selector : [selector];
       for(var i=0, l=selector.length; i<l; i++){
         arg = selector[i];
         if(_.isString(arg)){
@@ -2365,7 +2319,7 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
     },
   
     drop: function drop(selector){
-      var ar = _.dom.selectorEngine_matches(selector, this), i = ar.length;
+      var ar = _dom.selectorEngine_matches(selector, this), i = ar.length;
       while(i--){ this.splice(this.indexOf(ar[i]), 1); }
       return this;
     },
@@ -2391,22 +2345,22 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
       //optimise for the case when we're just passing a single element
       if(_.isElement(selector) && !ar && !context){ return [selector]; }
       //run the selector through Sizzle or other dom selector library
-      return _.dom.selectorEngine(selector, context, ar);
+      return _dom.selectorEngine(selector, context, ar);
     },
     
-    find          : function find(selector){ return new this.constructor(_.dom.selectorEngine_matches(this, selector), this.selectionContext); },
+    find          : function find(selector){ return new this.constructor(_dom.selectorEngine_matches(this, selector), this.selectionContext); },
     remove        : function remove(){ this.DOMElements().forEach(function(el){ el && el.parentNode && el.parentNode.removeChild(el); }); return this; },
-    addClass      : function addClass(str){    return _.dom.addClass(this, str);    },
-    removeClass   : function removeClass(str){ return _.dom.removeClass(this, str); },
+    addClass      : function addClass(str){    return _dom.addClass(this, str);    },
+    removeClass   : function removeClass(str){ return _dom.removeClass(this, str); },
     show          : function show(){ this.DOMElements().forEach(function(el){ el.style.display = ''; return this;});     },
     hide          : function hide(){ this.DOMElements().forEach(function(el){ el.style.display = 'none'; return this;}); },
-    climb         : function climb(fn){ return this.DOMElements().every(function(el){ return _.dom.climb(el, fn); }); },      
+    climb         : function climb(fn){ return this.DOMElements().every(function(el){ return _dom.climb(el, fn); }); },      
     //***************************************************************
     //childrenOf 
     //returns a new DOMCollection of elements that are DOM descendents of the supplied parent element
     childrenOf: function childrenOf(parent, jumpIframes){
-      return this.DOMElements().filter(function(el){ return _.dom.childOf(el, parent, jumpIframes); });
-      //return elements.length ? elements.every(function(el){ return _.dom.childOf(el, parent, jumpIframes); }) : false;
+      return this.DOMElements().filter(function(el){ return _dom.childOf(el, parent, jumpIframes); });
+      //return elements.length ? elements.every(function(el){ return _dom.childOf(el, parent, jumpIframes); }) : false;
     },
     
     debug: function(str){
@@ -2421,6 +2375,136 @@ _.extend(_.dom = function dom(selector, context){ return new _.dom.DOMSelection(
   
 });
 
+})();//end dom module
+
+
+
+
+//-----------------------------------------------------------------------------------------------------
+// AJAX Module
+//-----------------------------------------------------------------------------------------------------
+(function(){
+  //if the jsonp callback container doesn't exist yet, create it
+  _.getData(window, '__cruxCallbacks__') || _.setData(window, '__cruxCallbacks__', {});
+  
+  var inProgress = [];
+  
+  var Request = (new _.Object).subclass({
+    className: "Request",
+    init: function(params){
+      //console.log("request", arguments);
+      
+      _events.latch(this, 'start complete success failure abort');
+      _events.listen(this, 'start', function(e){ inProgress.push(e.target); });
+      _events.listen(this, 'complete', function(e){ inProgress.splice(inProgress.indexOf(e.target), 1); });
+      
+      var defaults = {
+        method: 'GET',
+        type: "xhr",
+        parentNode: _ajax
+      };
+      for(var key in defaults){
+        if(_hasOwnProperty.call(defaults, key)){
+          this[key] = (params && params[key] ? params[key] : defaults[key]);
+        }
+      }
+      
+    },
+    z: function(){}
+  });
+  
+  var XHR = (new Request).subclass({
+    "className": "XHR",
+    "init": function(){
+      console.log("xhr", arguments);
+    },
+    "execute": function(){},
+    "x": "a"
+  });
+  
+  
+  var JSONPRequest = (new Request).subclass({
+    "className": "JSONPRequest",
+    "init": function(){
+      console.log("JSONPRequest", arguments);
+    },
+    "execute": function(){
+      //use an underscore as the first character so we can be sure there isn't a number for the first char
+      var cid = '_' + _.guid();
+      var cb = '__cruxData__.__cruxCallbacks__[' + cid + ']';
+      
+    },
+    "x": "a"
+  });
+  
+  
+  var PostMessageRequest = (new Request).subclass({
+    "className": "JSONPRequest",
+    "init": function(){
+      console.log("JSONPRequest", arguments);
+    },
+    "execute": function(){},
+    "x": "a"
+  });
+  
+  
+  
+  
+  
+  //---------------------------------------------------------------------------
+  //_createRequestObject
+  //returns a new XMLHTTPRequest object specific to the current browser.
+  //creates a closure to capture the creation method used and overwrites the 
+  //original function with a shorter one.
+  //---------------------------------------------------------------------------
+  function _createRequestObject(){
+    var objXHR;
+    //create the request in (Firefox/Mozilla/Opera)
+    if(typeof XMLHttpRequest != 'undefined'){
+      objXHR = new XMLHttpRequest();
+      if(objXHR){
+        _createRequestObject = function(){ return new XMLHttpRequest(); };
+        return objXHR;
+      }
+    }
+    //TODO: eliminate IE6/7 component. IE8 comes with native support for XMLHTTPRequest
+    //create the request (IE)
+    else if(typeof ActiveXObject != 'undefined'){
+      var XMLHTTP_IDS = [
+        'Msxml2.XMLHTTP.6.0', //installed with IE7. ships with vista out-of-the-box.
+        'MSXML2.XMLHTTP.4.0', //designed to support legacy applications.
+        'MSXML2.XMLHTTP.3.0', //installed on all Win2k (sp4) and up Microsoft OSs. Does not support "Xml Schema" (XSD 1.0)
+        'MSXML2.XMLHTTP.5.0', //installed with Office 2003 but is off by default in IE7 and causes a "gold bar" to pop up when instanciated in IE7. better than nothing.
+        'MSXML2.XMLHTTP',     //really old (no support for abort() method)
+        'Microsoft.XMLHTTP'   //really old (no support for abort(), among other things)
+      ];
+      
+      for(var i=0; i<XMLHTTP_IDS.length && !objXHR; i++){
+        try{
+          objXHR = new ActiveXObject(XMLHTTP_IDS[i]);
+          if(objXHR){
+            _createRequestObject = function(){ return new ActiveXObject(XMLHTTP_IDS[i]); };
+            return objXHR;
+          }
+        }
+        catch(e){}
+      }
+    }
+    return null;
+  };
+  
+  _.extend(_ajax, {
+    request: function(){
+      var r = new _ajax.Request;
+      r.init.apply(r, arguments);
+      return r;
+    }
+  });
+  
+  //make available on the root object
+  _.request = _ajax.request;
+  
+})();
 
 
 
@@ -2530,8 +2614,8 @@ selector=Expr.relative[selector]?selector+"*":selector;for(var i=0,l=root.length
 return Sizzle.filter(later,tmpSet);}; 
 
 //EXPORT to the crux namespace only (not global)
-_.dom.selectorEngine = Sizzle;
-_.dom.selectorEngine_matches = Sizzle.matches;
+_dom.selectorEngine = Sizzle;
+_dom.selectorEngine_matches = Sizzle.matches;
 
 })();
 
