@@ -157,6 +157,11 @@ var _detected = {
     try{ return _slice.call(document.documentElement.children, 0); }
     catch(e){}
   })(),
+  IECreateElement: !!(function(){
+    //try to create the element using IE's funked up syntax
+    try{ return document.createElement('<input type="radio" name="x">'); }
+    catch(e){}
+  })(),
   //detect the 
   CSSClassAttribute : (function(){
     //create an element to test which attribute contains the actual CSS class string
@@ -724,7 +729,7 @@ _.Collection = (new _.Object).subclass({
   },
   listen  : function(type, listener){ _events._demux.apply(null, _.mergeIndexes([_events.listen, this], arguments)); },
   unlisten: function(type, listener){ _events._demux.apply(null, _.mergeIndexes([_events.unlisten, this], arguments)); },
-  fire: function(types, obj, manualBubble){ _events._demux.apply(null, _.mergeIndexes([_events.fire, this], arguments)); },
+  fire: function(types, obj, manualBubble){ _events._demux.apply(null, _.mergeIndexes([_events.fire, this], arguments)); }
 });
 
 
@@ -850,7 +855,8 @@ _.extend(_events, {
     }
     
     
-    //if this is a one-time event (such as window 'load'), and it has already been fired,  
+    //if this is a one-time event (such as window 'load'), and it has already been fired,
+    //(supposed to be a single equals sign, we're assigning the value to e, then testing if it's truthy)  
     if(e = _events.latchClosed(target, type)){
       //then execute the event listener right away (using the event target as "this" and passing a new event object to it).
       listener.call(target, e);
@@ -868,12 +874,11 @@ _.extend(_events, {
       }
       
       //if there is no event namespace or the event namespace matches the listener namespace
-      if(!objEvent.eventNamespace || _events.inNamespace(objEvent.eventNamespace, fn.namespace)){
+      if(_events.namespaceMatch(objEvent.eventNamespace, fn.namespace)){
         //white a property on the event object with the current listener namespace 
         objEvent.listenerNamespace = fn.namespace;
-        if(once){
-          _events.unlisten(target, type, fn.innerFn);
-        }
+        //if it's a listenOnce event, unlisten the listener, once it fires.
+        if(once){ _events.unlisten(target, type, fn.innerFn); }
         //call the listener using the current target as it's "this" (scope of the target object) 
         rv = fn.innerFn.call(objEvent.currentTarget || target, objEvent);
         if(rv === false || (objEvent.type === 'beforeunload' && isString(rv))){
@@ -893,7 +898,7 @@ _.extend(_events, {
     
     
     //if there are no listeners in the array or the new listener isn't present in the array
-    //TODO: figure out if we need to add a listener for each namespace
+    //TODO: figure out if we need to allow a listener for each namespace
     if(listeners.length == 0 || !listeners.some(function(fn){ return fn.innerFn == listener; })){
       //just push the listener onto the end of the array
       listeners.push(fn);
@@ -1011,8 +1016,8 @@ _.extend(_events, {
       while(i--){
         fn = listeners[i];
         
-        if((fn.innerFn == listener || !listener) && (fn.namespace == eventNamespace || eventNamespace == '*')){
-          listeners.splice(i,1);
+        if((fn.innerFn == listener || !listener) && _events.namespaceMatch(eventNamespace, fn.namespace)){
+          listeners.splice(i, 1);
           
           if(listeners.__eventModel__ == 1){
             target.removeEventListener(type, fn, false);
@@ -1023,10 +1028,11 @@ _.extend(_events, {
           else if(target['on' + type] == _events._executeListeners){
             target['on' + type] = undefined;
           }
-          //if the last event listener was just removed. clean up arrays and tracking objects?
+          //if the last event listener was just removed. should we clean up arrays and tracking objects?
           if(--l==0){}
           //a function reference was supplied
           if(listener){ return fn.innerFn; }
+          //otherwise, add the fn to the array
           returnValue.push(fn.innerFn);
         }
       }
@@ -1169,7 +1175,7 @@ _.extend(_events, {
         
     if(listenerContainer && _.isArray(listeners = listenerContainer[type]) && (i = listeners.length)){
       while(i--){
-        if((!fn || listeners[i].innerFn === fn) && (listeners[i].namespace == eventNamespace || eventNamespace == '*')){
+        if((!fn || listeners[i].innerFn === fn) && _events.namespaceMatch(eventNamespace, listeners[i].namespace)){
           arResults.push(listeners[i].innerFn);
           callback && callback(i, listeners, eventNamespace, type);
         }
@@ -1182,13 +1188,16 @@ _.extend(_events, {
     if(_.isString(target) || (_.isString(type) && type.indexOf(' ') > -1) || _.isArray(type)){
       return _events._demux.apply(this, _.toArray([latch, _.isString(target)], arguments));
     }
+    var obj = _.getData(target, '__listeners__') || _.setData(target, '__listeners__', {});
+    var listeners = !_.isArray(obj[type]) ? (obj[type] = []) : obj[type];
     //if the element has already been assigned as a "one time event" for this event type
     //don't overwrite the values already present
-    if(_.getData(target, '__TRAP_EVENT__' + type + '_fired')){ return 0; }
+    if(listeners.__latchEvent__){ return 0; }
+    
     //set a flag so that we can identify this element+event as a "one time" and mark it as "not yet fired"
-    _.setData(target, '__TRAP_EVENT__' + type + '_fired', false);
+    listeners.__latchEvent__ = false;
     //add an handler that marks the object+event as fired and preserves the event object
-    _events.listenOnce(target, type, function(e){ _.setData(target, '__TRAP_EVENT__' + type + '_fired', e); });
+    _events.listenOnce(target, type, function(e){ listeners.__latchEvent__ = e; });
     return 1;
   },
   
@@ -1196,8 +1205,26 @@ _.extend(_events, {
     if(_.isString(target) || (_.isString(type) && type.indexOf(' ') > -1) || _.isArray(type)){
       return _events._demux.apply(this, _.toArray([unlatch, _.isString(target)], arguments));
     }
-    _.setData(target, '__TRAP_EVENT__' + type + '_fired', undefined);
+    var obj = _.getData(target, '__listeners__');
+    !_.isArray(obj[type]) && (obj[type].__latchEvent__ = undefined);
+    //_.setData(target, '__latchEvent__' + type, undefined);
     return 1;
+  },
+  
+  
+  isLatch: function isLatch(target, type){
+    var x = _events.latchClosed(target, type);
+    //if the element has already been assigned as a "trap event" for this event type 
+    return !!(x === false || x);
+  },
+  
+  
+  //can return undefined, false, or an event object
+  latchClosed: function latchClosed(target, type){
+    var obj = _.getData(target, '__listeners__');
+    if(obj && _.isArray(obj[type])){
+      return obj[type].__latchEvent__;
+    }
   },
     
   
@@ -1219,21 +1246,18 @@ _.extend(_events, {
   },
   
   
-  isLatch: function isLatch(target, type){
-    var d = _.getData(target, '__TRAP_EVENT__' + type + '_fired')
-    //if the element has already been assigned as a "trap event" for this event type 
-    return !!(d === false || d);
-  },
-  
-  //can return undefined, false, or an event object
-  latchClosed: function latchClosed(target, type){ return _.getData(target, '__TRAP_EVENT__' + type + '_fired'); },
-  
-  inNamespaceMatch: function namespaceMatch(eventNS, listenerNS){
-    if(eventNS == listenerNS){ return true; }
-    eventNS = eventNS.split('.');
-    listenerNS = listenerNS.split('.');
-    
-    //objEvent.eventNamespace == fn.namespace
+  namespaceMatch: function namespaceMatch(eventNS, listenerNS){
+    //console.log(eventNS, listenerNS);
+    if(!listenerNS || !eventNS || eventNS == '*' || listenerNS == '*' || eventNS == listenerNS){ return true; }
+    eventNS = (eventNS + '').split('.');
+    listenerNS = (listenerNS + '').split('.');
+    var l = eventNS.length;
+    while(l--){
+      if(eventNS[l] !== listenerNS[l]){
+        return false;
+      }
+    }
+    return true;
   },
   
   /***************************************************************/
@@ -2163,29 +2187,45 @@ _.extend(_.dom = _dom, {
   //make
   //Creates an element and assigns attributes css classes and 
   make: function make(tagName, objAttributes, objEvents, elAppendTo){
-    var el = _.isElement(tagName) ? tagName : _ce(tagName);
+    var el, key, attrs = '';
     /*
     if(!elAppendTo){
       setData(el, '_ddpDetached', true); //serious thought should be put into whether this line should be left in...
     }
     */
-    if(objAttributes){
-      _.forOwnIn(objAttributes, function(k, v){
-        var lowerK = k.toLowerCase();
-        if(lowerK == 'classname' || lowerK == 'class'){
-          _dom.addClass(el, v);
-        }
-        else{
-          el.setAttribute(k, v);
+    //fix for an ie issue where, unless the element is created with a "name" attribute in
+    //the funky ie syntax, radio groups dont' work properly
+    if(_detected.IECreateElement){
+      attrs = '';
+      ['type', 'name', 'value', 'checked', 'defaultChecked'].forEach(function(str){
+        if(str in objAttributes && _hasOwnProperty.call(objAttributes, str)){
+          attrs += ' ' + str + '="' + objAttributes[str] + '"';
         }
       });
+      el = _ce('<' + tagName + '' + attrs + '>');
     }
-    if(objEvents){
-      _.forOwnIn(objEvents, function(k, v){ ddp.f.addEvent(el, k, v); });
+    else{
+      el = _ce(tagName);
     }
+    for(key in objAttributes){
+      if(_hasOwnProperty.call(objAttributes, key)){
+        el.setAttribute(key, objAttributes[key]);
+      }
+    }
+    if(_hasOwnProperty.call(objAttributes, 'className') || _hasOwnProperty.call(objAttributes, 'classname')){
+      _dom.addClass(el, objAttributes.className || objAttributes.classname);
+    }
+    for(key in objEvents){
+      if(_hasOwnProperty.call(objEvent, key)){
+        _events.listen(el, key, objEvent[key]);
+      }
+    }
+    //TODO: add the appendTo functionality when we've figured out how that will work
+    /*
     if(elAppendTo){
       appendElement(el, elAppendTo);
     }
+    */
     return el;
   },
   
@@ -2234,12 +2274,12 @@ _.extend(_.dom = _dom, {
         var ch = _cache.geometryChanged;
         _cache.geometryChanged = false;
         return ((!ch && _cache.geometry) ? _cache.geometry : _cache.geometry = {
-          "viewportWidth"   : w.innerWidth,
-          "viewportHeight"  : w.innerHeight,
-          "horizontalScroll": w.pageXOffset,
-          "verticalScroll"  : w.pageYOffset,
-          "documentWidth"   : dg.width,
-          "documentHeight"  : dg.height
+          viewportWidth   : w.innerWidth,
+          viewportHeight  : w.innerHeight,
+          horizontalScroll: w.pageXOffset,
+          verticalScroll  : w.pageYOffset,
+          documentWidth   : dg.width,
+          documentHeight  : dg.height
         });
       })();
     }
@@ -2250,12 +2290,12 @@ _.extend(_.dom = _dom, {
         var ch = _cache.geometryChanged;
         _cache.geometryChanged = false;
         return ((!ch && _cache.geometry) ? _cache.geometry : _cache.geometry = {
-          "viewportWidth"   : documentElement.clientWidth,
-          "viewportHeight"  : documentElement.clientHeight,
-          "horizontalScroll": documentElement.scrollLeft,
-          "verticalScroll"  : documentElement.scrollTop,
-          "documentWidth"   : dg.width,
-          "documentHeight"  : dg.height
+          viewportWidth   : documentElement.clientWidth,
+          viewportHeight  : documentElement.clientHeight,
+          horizontalScroll: documentElement.scrollLeft,
+          verticalScroll  : documentElement.scrollTop,
+          documentWidth   : dg.width,
+          documentHeight  : dg.height
         });
       })();
     }
@@ -2266,25 +2306,185 @@ _.extend(_.dom = _dom, {
         var ch = _cache.geometryChanged;
         _cache.geometryChanged = false;
         return ((!ch && _cache.geometry) ? _cache.geometry : _cache.geometry = {
-          "viewportWidth"   : body.clientWidth,
-          "viewportHeight"  : body.clientHeight,
-          "horizontalScroll": body.scrollLeft,
-          "verticalScroll"  : body.scrollTop,
-          "documentWidth"   : dg.width,
-          "documentHeight"  : dg.height
+          viewportWidth   : body.clientWidth,
+          viewportHeight  : body.clientHeight,
+          horizontalScroll: body.scrollLeft,
+          verticalScroll  : body.scrollTop,
+          documentWidth   : dg.width,
+          documentHeight  : dg.height
         });
       })();
     }
-    
-    return {
-      "viewportWidth"   : 0,
-      "viewportHeight"  : 0,
-      "horizontalScroll": 0,
-      "verticalScroll"  : 0,
-      "documentWidth"   : 0,
-      "documentHeight"  : 0
-    };
+    return {viewportWidth: 0, viewportHeight: 0, horizontalScroll: 0, verticalScroll: 0, documentWidth: 0, documentHeight: 0};
   },
+  
+  
+  
+  /***************************************************************/
+  //getRadioValue
+  //gets the value of a radio group by it's name
+  //arguments:
+  //strNameOrRef  - string or element reference   - the name of a radio group or one of the elements in the group
+  //elContainer   - element reference *optional*  - an element to confine the search to
+  //returns the value of the selected radio button or null if there are none selected
+  getRadioValue: function getRadioValue(strNameOrRef, elContainer){
+    //if a container was specified, only look within it, otherwise look at the whole document
+    if(!elContainer)
+      elContainer = document;
+    //if the arg was an element, use it's "name" property, otherwise just use the arg value
+    var strRadioName = (!_.isString(strNameOrRef) && typeof strNameOrRef == 'object') ? strNameOrRef.name : strNameOrRef;
+    //get the elements with the supplied name within the container (or the whole document if the element doesn't support the getElementsByName method)
+    var objInputs = (elContainer.getElementsByName) ? elContainer.getElementsByName(strRadioName) : document.getElementsByName(strRadioName);
+    //step through the elements and pick the first one that's checked
+    for(var i=0, l=objInputs.length; i<l; i++)
+      //if one of the elements is checked and it's within the container
+      if(objInputs[i].checked && (elContainer == document || _.dom.childOf(objInputs[i], elContainer)))
+        //return it's value
+        return objInputs[i].value;
+    
+    //if none were selected, return null
+    return null;
+  },
+  
+  
+  
+  /***************************************************************/
+  //setRadioValue
+  //sets the value of a radio group by it's name
+  //arguments:
+  //strNameOrRef  - string or element reference   - the name of a radio group or one of the elements in the group
+  //strValue      - the value of the input to find and check
+  //elContainer   - element reference *optional*  - an element to confine the search to
+  //returns true if the value was found within the group and set, false if it wasn't found
+  setRadioValue: function setRadioValue(strNameOrRef, strValue, elContainer){
+    //if a container was specified, only look within it, otherwise look at the whole document
+    if(!elContainer)
+      elContainer = document;
+    var blnSuccess = false;
+    //if the arg was an element, use it's "name" property, otherwise just use the arg value
+    var strRadioName = (!_.isString(strNameOrRef) && typeof strNameOrRef == 'object') ? strNameOrRef.name : strNameOrRef;
+    //get the elements with the supplied name within the container (or the whole document if the element doesn't support the getElementsByName method)
+    var objInputs = (elContainer.getElementsByName) ? elContainer.getElementsByName(strRadioName) : document.getElementsByName(strRadioName);
+    //step through the elements and find the one matching the specified value
+    for(var i=0, l=objInputs.length; i<l; i++)
+      //if the value of the input matched the value specified
+      if(objInputs[i].value == strValue){
+        //set the checked attribute
+        objInputs[i].setAttribute('checked', 'checked');
+        blnSuccess = true;
+      }
+    
+    return blnSuccess;
+  },
+  
+  
+  clearRadioGroup: function clearRadioGroup(strNameOrRef, elContainer){
+    //if a container was specified, only look within it, otherwise look at the whole document
+    if(!elContainer)
+      elContainer = document;
+    //if the arg was an element, use it's "name" property, otherwise just use the arg value
+    var strRadioName = (!_.isString(strNameOrRef) && typeof strNameOrRef == 'object') ? strNameOrRef.name : strNameOrRef;
+    //get the elements with the supplied name within the container (or the whole document if the element doesn't support the getElementsByName method)
+    var objInputs = (elContainer.getElementsByName) ? elContainer.getElementsByName(strRadioName) : document.getElementsByName(strRadioName);
+    //step through the elements and pick the first one that's checked
+    for(var i=0, l=objInputs.length; i<l; i++){
+      //if one of the elements is checked and it's within the container
+      if(objInputs[i].checked != false){
+        //clear the checked box
+        objInputs[i].checked = false;
+      }
+    }
+    return;
+  },
+  
+  
+  
+  /***************************************************************/
+  //accepts a form element and iterates through it's child elements looking for elements with a name and value property
+  //returns a string of name value pairs eg. "varname=varvalue&vartwo=vartwovalue" 
+  parseForm: function parseForm(elForm, blnSkipBlankFields, blnReturnAnObject){
+  
+    //make sure we're dealing with an HTML element (probably a form but doesn't have to be)
+    if(!elForm || !elForm.getElementsByTagName)
+      throw new Error('ddp.forms.parseForm - Error: elForm is not an element.')
+    
+    //create an object to hold our properties
+    var objReturn = {};
+    //get all child elements of the form
+    var arElements = elForm.getElementsByTagName('*');
+    //iterate throught the elements
+    for(var i=0, l=arElements.length; i<l; i++){
+      //if the element has a name property which isn't blank and a value property AND we don't already have a return property by that name
+      if(typeof arElements[i].name != 'undefined' && arElements[i].name != '' && typeof arElements[i].value != 'undefined'){
+        
+        //default to the element's value
+        var elementValue = arElements[i].value;
+        
+        //if it's an <input> element and it has a "type" property
+        if(arElements[i].tagName.toLowerCase() == 'input' && typeof arElements[i].type != 'undefined'){
+          //if it's a radio element
+          if(arElements[i].type.toLowerCase() == 'radio'){
+            //if there is already a record for the radio group by this name
+            if(typeof objReturn[arElements[i].name] != 'undefined')
+              //skip the rest of this iteration and move to the next array index
+              continue;
+            //get the radio group's return value (only radio's with the specified name that are within "elForm")
+            elementValue = getRadioValue(arElements[i].name, elForm);
+            if(elementValue === null) //if the function returned null
+              elementValue = ''; //then set the value for the serialization to blank
+          }
+          else if(arElements[i].type.toLowerCase() == 'checkbox'){
+            if(!arElements[i].checked)
+              elementValue = '';
+          }
+          //if it's a file input,
+          else if(arElements[i].type.toLowerCase() == 'file'){
+            //then tell them not to do it this way...
+            elementValue = '"' + arElements[i].name + '" - File inputs can\'t be serialized with ddp.forms.serializeObject. (try ddp.ajax.submitToForm)';
+            try{ console.log(elementValue); }catch(e){}
+          }
+        }
+        //if it's a multiple selection <select> input
+        else if(arElements[i].tagName.toLowerCase() == 'select' && arElements[i].multiple){
+          //get the <select>'s <option>s
+          var arOptions = arElements[i].getElementsByTagName('option');
+          //make the a new array for return values
+          var arSelectedOptions = [];
+          //go through the option elements
+          for(var j=0, jl=arOptions.length; j<jl; j++){
+            if(arOptions[j].selected) //and if they are selected
+              arSelectedOptions.push(arOptions[j].value); //add them to the array
+          }
+              
+          if(arSelectedOptions.length == 0) //if there were none selected
+            elementValue = ''; //set the value to blank (so it can be not-included)
+          else if(arSelectedOptions.length == 1) //if there was only one selected
+            elementValue = arSelectedOptions[0]; //uncomplicate things and just make it a single string
+          else //otherwise
+            elementValue = arSelectedOptions; //just return the new array of values
+        }
+        
+        //if we aren't skipping blank fields,
+        if(!(blnSkipBlankFields == true && elementValue == '')){
+          //if the property doesn't exist
+          if(typeof objReturn[arElements[i].name] == 'undefined')
+            //add this property to the object we're building
+            objReturn[arElements[i].name] = elementValue;
+          else if(ddp.f.isArray(objReturn[arElements[i].name])) //if the property is already an array
+            //add this property to the object we're building
+            objReturn[arElements[i].name].push(elementValue);
+          else //the property exists already but it's not an array
+            //make it an array, assign it's first element to be the old property value, and add the new value
+            objReturn[arElements[i].name] = [objReturn[arElements[i].name], elementValue];
+        }
+      }
+    }
+  
+    //serialize the object into a URI encoded string (only "hasOwnProperty" properties will be included)
+    return (blnReturnAnObject == true) ? objReturn : ddp.a.serializeObject(objReturn, true);
+  },
+  
+  
   
   //-----------------------------------------------
   //----------------DOM SELECTION------------------
@@ -2449,27 +2649,14 @@ _.extend(_.dom = _dom, {
   
   
   
-  
-  
   //---------------------------------------------------------------------------
-  //_createRequestObject
-  //returns a new XMLHTTPRequest object specific to the current browser.
-  //creates a closure to capture the creation method used and overwrites the 
-  //original function with a shorter one.
+  //if no XMLHTTPRequest function exists, try top polyfill with 
+  //a microsoft activeX version.
   //---------------------------------------------------------------------------
-  function _createRequestObject(){
-    var objXHR;
-    //create the request in (Firefox/Mozilla/Opera)
-    if(typeof XMLHttpRequest != 'undefined'){
-      objXHR = new XMLHttpRequest();
-      if(objXHR){
-        _createRequestObject = function(){ return new XMLHttpRequest(); };
-        return objXHR;
-      }
-    }
+  var XMLHttpRequest = window.XMLHttpRequest || function(){
     //TODO: eliminate IE6/7 component. IE8 comes with native support for XMLHTTPRequest
     //create the request (IE)
-    else if(typeof ActiveXObject != 'undefined'){
+    if(typeof ActiveXObject != 'undefined'){
       var XMLHTTP_IDS = [
         'Msxml2.XMLHTTP.6.0', //installed with IE7. ships with vista out-of-the-box.
         'MSXML2.XMLHTTP.4.0', //designed to support legacy applications.
@@ -2481,17 +2668,18 @@ _.extend(_.dom = _dom, {
       
       for(var i=0; i<XMLHTTP_IDS.length && !objXHR; i++){
         try{
-          objXHR = new ActiveXObject(XMLHTTP_IDS[i]);
+          var objXHR = new ActiveXObject(XMLHTTP_IDS[i]);
           if(objXHR){
-            _createRequestObject = function(){ return new ActiveXObject(XMLHTTP_IDS[i]); };
+            XMLHttpRequest = function(){ return new ActiveXObject(XMLHTTP_IDS[i]); };
             return objXHR;
           }
         }
         catch(e){}
       }
     }
-    return null;
+    throw 'No support for xmlhttprequest';
   };
+
   
   _.extend(_ajax, {
     request: function(){
@@ -2505,6 +2693,41 @@ _.extend(_.dom = _dom, {
   _.request = _ajax.request;
   
 })();
+
+
+
+//------------------------------------------------------------------------
+//    json2.js
+//    2011-10-19
+//    Public Domain.
+//    NO WARRANTY EXPRESSED OR IMPLIED. USE AT YOUR OWN RISK.
+//    See http://www.JSON.org/js.html
+//------------------------------------------------------------------------
+var JSON;if(!JSON){JSON={};}
+(function(){'use strict';function f(n){return n<10?'0'+n:n;}
+if(typeof Date.prototype.toJSON!=='function'){Date.prototype.toJSON=function(key){return isFinite(this.valueOf())?this.getUTCFullYear()+'-'+
+f(this.getUTCMonth()+1)+'-'+
+f(this.getUTCDate())+'T'+
+f(this.getUTCHours())+':'+
+f(this.getUTCMinutes())+':'+
+f(this.getUTCSeconds())+'Z':null;};String.prototype.toJSON=Number.prototype.toJSON=Boolean.prototype.toJSON=function(key){return this.valueOf();};}
+var cx=/[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,escapable=/[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,gap,indent,meta={'\b':'\\b','\t':'\\t','\n':'\\n','\f':'\\f','\r':'\\r','"':'\\"','\\':'\\\\'},rep;function quote(string){escapable.lastIndex=0;return escapable.test(string)?'"'+string.replace(escapable,function(a){var c=meta[a];return typeof c==='string'?c:'\\u'+('0000'+a.charCodeAt(0).toString(16)).slice(-4);})+'"':'"'+string+'"';}
+function str(key,holder){var i,k,v,length,mind=gap,partial,value=holder[key];if(value&&typeof value==='object'&&typeof value.toJSON==='function'){value=value.toJSON(key);}
+if(typeof rep==='function'){value=rep.call(holder,key,value);}
+switch(typeof value){case'string':return quote(value);case'number':return isFinite(value)?String(value):'null';case'boolean':case'null':return String(value);case'object':if(!value){return'null';}
+gap+=indent;partial=[];if(Object.prototype.toString.apply(value)==='[object Array]'){length=value.length;for(i=0;i<length;i+=1){partial[i]=str(i,value)||'null';}
+v=partial.length===0?'[]':gap?'[\n'+gap+partial.join(',\n'+gap)+'\n'+mind+']':'['+partial.join(',')+']';gap=mind;return v;}
+if(rep&&typeof rep==='object'){length=rep.length;for(i=0;i<length;i+=1){if(typeof rep[i]==='string'){k=rep[i];v=str(k,value);if(v){partial.push(quote(k)+(gap?': ':':')+v);}}}}else{for(k in value){if(Object.prototype.hasOwnProperty.call(value,k)){v=str(k,value);if(v){partial.push(quote(k)+(gap?': ':':')+v);}}}}
+v=partial.length===0?'{}':gap?'{\n'+gap+partial.join(',\n'+gap)+'\n'+mind+'}':'{'+partial.join(',')+'}';gap=mind;return v;}}
+if(typeof JSON.stringify!=='function'){JSON.stringify=function(value,replacer,space){var i;gap='';indent='';if(typeof space==='number'){for(i=0;i<space;i+=1){indent+=' ';}}else if(typeof space==='string'){indent=space;}
+rep=replacer;if(replacer&&typeof replacer!=='function'&&(typeof replacer!=='object'||typeof replacer.length!=='number')){throw new Error('JSON.stringify');}
+return str('',{'':value});};}
+if(typeof JSON.parse!=='function'){JSON.parse=function(text,reviver){var j;function walk(holder,key){var k,v,value=holder[key];if(value&&typeof value==='object'){for(k in value){if(Object.prototype.hasOwnProperty.call(value,k)){v=walk(value,k);if(v!==undefined){value[k]=v;}else{delete value[k];}}}}
+return reviver.call(holder,key,value);}
+text=String(text);cx.lastIndex=0;if(cx.test(text)){text=text.replace(cx,function(a){return'\\u'+
+('0000'+a.charCodeAt(0).toString(16)).slice(-4);});}
+if(/^[\],:{}\s]*$/.test(text.replace(/\\(?:["\\\/bfnrt]|u[0-9a-fA-F]{4})/g,'@').replace(/"[^"\\\n\r]*"|true|false|null|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?/g,']').replace(/(?:^|:|,)(?:\s*\[)+/g,''))){j=eval('('+text+')');return typeof reviver==='function'?walk({'':j},''):j;}
+throw new SyntaxError('JSON.parse');};}}());
 
 
 
