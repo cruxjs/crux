@@ -231,7 +231,7 @@ var _ = window[_externalName] = {
     obj = obj || {};
     for(var i=1, l=arguments.length; i<l; i++){
       source = arguments[i];
-      j = jl;
+      j = source ? jl : 0;
       while(j--){
         key = keys[j];
         if(_hasOwnProperty.call(source, key)){
@@ -495,7 +495,7 @@ var _ = window[_externalName] = {
           container[propname] = undefined;
           delete container[propname];
         }
-        else if(key && _hasOwnProperty(cache, key)){
+        else if(key && _hasOwnProperty.call(cache, key)){
           //for implementations that won't actually delete the property
           cache[key] = undefined;
           delete cache[key];
@@ -673,6 +673,8 @@ var _ = window[_externalName] = {
       toString    : function toString(){     return '[object '+(this.className || 'Object')+']';              },
       augment     : function augment(obj){   _.extend(this.constructor.prototype, obj); return this;          },
       mergeIndexes: function mergeIndexes(){ return _.mergeIndexes.apply(this, _.toArray([this], arguments)); },
+      extend      : function extend(obj){    return _.extend.apply(this, _.toArray([this], arguments));       },
+      extendKeys  : function extendKeys(){   _splice.call(arguments, 1, 0, this); _.extendKeys.apply(this, arguments); return this; },
       subclass    : function subclass(obj, name){
         name = name || (obj ? obj.className : null) || this.className || '';
         //Create a function using the Function constructor so we can name the inner returned function with the className
@@ -727,9 +729,9 @@ _.Collection = (new _.Object).subclass({
     this.length = newLength + 1;
     return this;
   },
-  listen  : function(type, listener){ _events._demux.apply(null, _.mergeIndexes([_events.listen, this], arguments)); },
-  unlisten: function(type, listener){ _events._demux.apply(null, _.mergeIndexes([_events.unlisten, this], arguments)); },
-  fire: function(types, obj, manualBubble){ _events._demux.apply(null, _.mergeIndexes([_events.fire, this], arguments)); }
+  listen  : function(type, listener){ _events._demux.apply(null, [_events.listen, this].concat(_slice.call(arguments, 0))); },
+  unlisten: function(type, listener){ _events._demux.apply(null, [_events.unlisten, this].concat(_slice.call(arguments, 0))); },
+  fire: function(types, obj, manualBubble){ _events._demux.apply(null, [_events.fire, this].concat(_slice.call(arguments, 0))); }
 });
 
 
@@ -748,7 +750,6 @@ _.extend(_events, {
   //---------------------------------------------------------------------------
   
   _demux: function _demux(fn, demuxTarget, targets, types){
-    //console.log(arguments);
     var successes = 0, i, il, j, jl;
     //resolve the selector string if that's what "targets" contains
     if(demuxTarget && !(targets = _.isString(targets) ? _dom.selectorEngine(targets) : targets)){ return 0; }
@@ -764,9 +765,9 @@ _.extend(_events, {
     types = (_.isArray(types) || types instanceof _.Collection) ? types : [types];
     //an array of event targets can be passed and each target element will have the event type listener added to it
     targets = (!demuxTarget || _.isArray(targets) || targets instanceof _.Collection) ? targets : [targets];
-    for(i=0, il=(demuxTarget ? targets.length : 0); i<il; i++){
+    for(i=0, il=(demuxTarget ? targets.length : 1); i<il; i++){
       for(j=0, jl=types.length; j<jl; j++){
-        successes += fn.apply(this, _.toArray([(demuxTarget ? targets[i] : targets), types[j]], _slice.call(arguments, 4)));
+        successes += fn.apply(this, [(demuxTarget ? targets[i] : targets), types[j]].concat(_slice.call(arguments, 4)));
       }
     }
     return successes;
@@ -990,7 +991,7 @@ _.extend(_events, {
     }
     
     if(_.isString(target) || (_.isString(type) && type.indexOf(' ') > -1) || _.isArray(type)){
-      return _events._demux.apply(this, _.toArray([unlisten, _.isString(target)], arguments));
+      return _events._demux.apply(this, [unlisten, _.isString(target)].concat(_slice.call(arguments, 0)));
     }
     
     //if we aren't able to get a reference to the ddplisteners object, quit
@@ -1148,7 +1149,7 @@ _.extend(_events, {
         i, tmpParts;
         
     if(_.isString(target) || (_.isString(type) && type.indexOf(' ') > -1) || _.isArray(type)){
-      return _events._demux.apply(this, _.toArray([listeners, _.isString(target)], arguments));
+      return _events._demux.apply(this, [listeners, _.isString(target)].concat(_slice.call(arguments, 0)));
     }
         
     if(type === null || type === undefined){
@@ -1186,7 +1187,7 @@ _.extend(_events, {
  
   latch: function latch(target, type){
     if(_.isString(target) || (_.isString(type) && type.indexOf(' ') > -1) || _.isArray(type)){
-      return _events._demux.apply(this, _.toArray([latch, _.isString(target)], arguments));
+      return _events._demux.apply(this, [latch, _.isString(target)].concat(_slice.call(arguments, 0)));
     }
     var obj = _.getData(target, '__listeners__') || _.setData(target, '__listeners__', {});
     var listeners = !_.isArray(obj[type]) ? (obj[type] = []) : obj[type];
@@ -1203,7 +1204,7 @@ _.extend(_events, {
   
   unlatch: function unlatch(target, type){
     if(_.isString(target) || (_.isString(type) && type.indexOf(' ') > -1) || _.isArray(type)){
-      return _events._demux.apply(this, _.toArray([unlatch, _.isString(target)], arguments));
+      return _events._demux.apply(this, [unlatch, _.isString(target)].concat(_slice.call(arguments, 0)));
     }
     var obj = _.getData(target, '__listeners__');
     !_.isArray(obj[type]) && (obj[type].__latchEvent__ = undefined);
@@ -1233,7 +1234,7 @@ _.extend(_events, {
   //flags an event on an object as a "one time event"
   relatch: function relatch(target, type){
     if(_.isString(target) || (_.isString(type) && type.indexOf(' ') > -1) || _.isArray(type)){
-      return _events._demux.apply(this, _.toArray([relatch, _.isString(target)], arguments));
+      return _events._demux.apply(this, [relatch, _.isString(target)].concat(_slice.call(arguments, 0)));
     }
     var e = _events.latchClosed(target, type);
     //is one, but hasn't fired yet so it doesn't need to be reset 
@@ -1774,7 +1775,6 @@ _.extend(_events, {
 
 _.listen    = _events.listen;
 _.unlisten  = _events.unlisten;
-_.listeners = _events.listeners;
 _.fire      = _events.fire;
 
 
@@ -1970,6 +1970,58 @@ _.extend(_.dom = _dom, {
     }
     //fallback to calculating it ourselves
     return (_dom.climb(elChild, function(nodes, elParent){ if(this==elParent) return true; }, [elParent], blnBridgeIframes) === true);
+  },
+  
+  append: function append(el, to){
+    //TODO: code the extra stuff for appending an element to a parent
+    to.parentNode.appendChild(el);
+    return el;
+  },
+  
+  remove: function remove(el, keepData){
+    if(keepData){
+      //setData(el, '_ddpDetached', true);
+    }
+    else if(el.nodeType === 1){ //element node
+      if(el.getElementsByTagName){
+        //remove the cached data for all child elements
+        _.dom.cleanData(el.getElementsByTagName("*"));
+      }
+      //and the element to be removed
+      _.dom.cleanData([el]);
+    }
+    el.parentNode && el.parentNode.removeChild(el);
+    return el;
+  },
+  
+  /***********************************************************************
+    !ATTENTION!
+    SETTING THE FIREBUG CONSOLE TAB TO "Strict Warnings" WILL CAUSE A HUGE 
+    DELAY WITHIN THIS METHOD. IT'S NOT THE METHOD. IT'S FIREBUG.
+  ***********************************************************************/
+  //cleanElementData
+  cleanData: function cleanData(arEls){
+    var el, data, i = arEls.length;
+    while(i--){
+      el = arEls[i];
+      //non-DOMElement object
+      if(el.__ddpData__){
+        el.__ddpData__ = undefined;
+        delete el.__ddpData__;
+      }
+      //DOMElement
+      if(el.__ddpGUID__){
+        data = _cache;
+        if(data[el.__ddpGUID__] && data[el.__ddpGUID__].__listeners__){
+          //remove any event listeners
+          _events.unlisten(el);
+        }
+        data[el.__ddpGUID__] = undefined;
+        delete data[el.__ddpGUID__];
+        //delete arEls[i].__ddpGUID__; //can't delete a property off of a DOMElement in IE
+        el.__ddpGUID__ = undefined;
+      }
+    }
   },
   
   //***************************************************************
@@ -2591,9 +2643,8 @@ _.extend(_.dom = _dom, {
   
   var Request = (new _.Object).subclass({
     className: "Request",
-    init: function(params){
+    init: function(obj){
       //console.log("request", arguments);
-      
       _events.latch(this, 'start complete success failure abort');
       _events.listen(this, 'start', function(e){ inProgress.push(e.target); });
       _events.listen(this, 'complete', function(e){ inProgress.splice(inProgress.indexOf(e.target), 1); });
@@ -2603,15 +2654,13 @@ _.extend(_.dom = _dom, {
         type: "xhr",
         parentNode: _ajax
       };
-      for(var key in defaults){
-        if(_hasOwnProperty.call(defaults, key)){
-          this[key] = (params && params[key] ? params[key] : defaults[key]);
-        }
-      }
+      this.extendKeys(_.keys(defaults), defaults, obj);
       
-    },
-    z: function(){}
+      return this;
+    }
   });
+  
+  _.r = Request;
   
   var XHR = (new Request).subclass({
     "className": "XHR",
@@ -2625,28 +2674,96 @@ _.extend(_.dom = _dom, {
   
   var JSONPRequest = (new Request).subclass({
     "className": "JSONPRequest",
-    "init": function(){
-      console.log("JSONPRequest", arguments);
-    },
-    "execute": function(){
-      //use an underscore as the first character so we can be sure there isn't a number for the first char
-      var cid = '_' + _.guid();
-      var cb = '__cruxData__.__cruxCallbacks__[' + cid + ']';
+    "init": function(obj){
+      var success, failure, complete;
+      //default to 'callback' as the name of the variable the server will look for (in the GET request) and
+      //use it's content as the javascript callback function in the response. 
+      var defaults = {
+        url: '',
+        timeout: 30,
+        method: 'JSONP',
+        serverCallbackName: 'callback'
+      };
+      this.extendKeys(_.keys(defaults), defaults, obj);
       
+      if(obj){
+        success = obj.success || null;
+        failure = obj.failure || null;
+        complete = obj.complete || null;
+      }
+      success && _events.listen(this, 'success', function(e){ success.call(this, e.data); });
+      failure && _events.listen(this, 'failure', function(e){ failure.call(this, e.data); });
+      complete && _events.listen(this, 'complete', function(e){ complete.call(this, e.data); });
+
+      return this;
     },
-    "x": "a"
+    execute: function execute(){
+      //define the "request complete" flag.
+      var done,
+          //maintain a reference to "this" for using within event listeners (their "this" is the current event target)
+          ths = this,
+          //create a unique identifier string
+          guid = '_' + _.guid(),
+          //if the url already has a ? then add an &; otherwise, add a ?.
+          url = this.url + ((this.url.indexOf('?')+1) ? '&' : '?') + this.serverCallbackName +'=__cruxData__.' + guid;
+      
+      //add a name value pair for passing the callback function name we generated.
+      //create a global function with our function name 
+      _.setData(window, guid, function(d){
+        done = true;
+        cleanUp();
+        //pass all arguments to our success function
+        _events.fire(ths, 'success', {data: d});
+      });
+      
+      //now, set the src attribute to our url with the callback added (if there was a callback function provided)
+      //create a new script element
+      var el = _dom.make('script', {type: 'text/javascript', src: url});
+      
+      //add event handlers to the script element's onerror, onload, and onreadystatechanged events (try to detect success or failure)
+      _events.listen(el, 'load error', cleanUp);
+      _events.listen(el, 'readystatechange', function(e){
+        var rs = e.target && e.target.readyState;
+        rs && (rs == 'loaded' || rs == 'complete') && cleanUp();
+      });
+      //append the new script element to the <head> element
+      document.getElementsByTagName('head')[0].appendChild(el);
+      //set a timeout for the request.
+      this.timeout && (requestTimeout = window.setTimeout(cleanUp, this.timeout * 1000));
+      
+      
+      //cleanup routine to remove the window timeout, callback function reference, 
+      function cleanUp(e){
+        
+        //console.log('cleanUp', 'done: ' + done, arguments, e && e.type);
+        _.setData(window, guid, undefined);
+        //if the timeout is still active
+        window.clearTimeout(requestTimeout);
+        if(el){
+          //remove the script fom the DOM tree)
+          _dom.remove(el);
+          el = null;
+        }
+        if(!done){
+          done = true;
+          //if there was a failure function specified, fire it as a 400 http error
+          _events.fire(ths, 'failure', {data: arguments});
+        }
+      }
+      
+      return el;
+    }
   });
   
   
   var PostMessageRequest = (new Request).subclass({
-    "className": "JSONPRequest",
+    "className": "PostMessageRequest",
     "init": function(){
-      console.log("JSONPRequest", arguments);
+      console.log("PostMessageRequest", arguments);
     },
     "execute": function(){},
     "x": "a"
   });
-  
   
   
   //---------------------------------------------------------------------------
@@ -2686,7 +2803,16 @@ _.extend(_.dom = _dom, {
       var r = new _ajax.Request;
       r.init.apply(r, arguments);
       return r;
-    }
+    },
+    jsonp: function(obj){
+      var r = new JSONPRequest(obj);
+      (!obj || !obj.noExec) && r.execute();
+      return r;
+    },
+    Request: Request,
+    XHR: XHR,
+    JSONPRequest: JSONPRequest,
+    PostMessageRequest: PostMessageRequest
   });
   
   //make available on the root object
