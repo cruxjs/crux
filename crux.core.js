@@ -506,11 +506,12 @@ var _ = window[_externalName] = {
     }
     //
     if(obj.__cruxGUID__ || _.isElement(obj)){
+    //if(1){
       uid = obj.__cruxGUID__ || (obj.__cruxGUID__ = _.guid());
       cache = _cache.elementData[uid] || (_cache.elementData[uid] = {"__owner__": obj});
     }
     else{
-      cache = obj.__cruxData__ || (obj.__cruxData__ = {});
+      cache = _hasOwnProperty.call(obj, '__cruxData__') ? obj.__cruxData__ : (obj.__cruxData__ = {});
     }
     if(merge && !key){
       return _.extend(cache, data);
@@ -659,38 +660,48 @@ var _ = window[_externalName] = {
     }
   },
   
-  
+  "newFunction": function(name){
+    //function CruxFunction(){}
+    var F = Function('return function ' + (name || 'CruxFunction') + '(){}')();
+    F.subclass = function(obj, name){ return (new F).subclass.apply(this, arguments); };
+    return F;
+  }
+};
+
+_.extend(_, {
   //-----------------------------------------------
   //-----------------CRUX OBJECT-------------------
   //-----------------------------------------------
   
   "Object": (function(){
-    function CruxObject(){}
-    //CruxObject.subclass = function(obj, name){ return (new CruxObject).subclass.apply(this, arguments); };
+    var CruxObject = _.newFunction("CruxObject");
     CruxObject.prototype = {
       constructor : CruxObject,
       _super      : Object,
       toString    : function toString(){     return '[object '+(this.className || 'Object')+']';              },
       augment     : function augment(obj){   _.extend(this.constructor.prototype, obj); return this;          },
-      mergeIndexes: function mergeIndexes(){ return _.mergeIndexes.apply(this, _.toArray([this], arguments)); },
-      extend      : function extend(obj){    return _.extend.apply(this, _.toArray([this], arguments));       },
+      mergeIndexes: function mergeIndexes(){ return _.mergeIndexes.apply(this, [this].concat(_slice.call(arguments, 0))); },
+      extend      : function extend(obj){    return _.extend.apply(this, [this].concat(_slice.call(arguments, 0))); },
       extendKeys  : function extendKeys(){   _splice.call(arguments, 1, 0, this); _.extendKeys.apply(this, arguments); return this; },
       subclass    : function subclass(obj, name){
         name = name || (obj ? obj.className : null) || this.className || '';
         //Create a function using the Function constructor so we can name the inner returned function with the className
         //Within the returned function, execute the default constructor in the context of the new object.
         //If the subclass has or inherited an init method, execute it with any arguments passed to this consructor
-        var sub = Function('return function ' + name + '(){ arguments.callee.__parentContructor__.call(this); this.init && this.init.apply(this, arguments);}')();
+        //var sub = Function('return function ' + name + '(){ arguments.callee.__parentContructor__.call(this); this.init && this.init.apply(this, arguments);}')();
+        var sub = Function('return function ' + name + '(){ arguments.callee.__parentContructor__.call(this); arguments.callee.prototype.init && arguments.callee.prototype.init.apply(this, arguments);}')();
+        
+        //console.log(arguments.callee.__parentContructor__);
         sub.prototype = _.extend(this, obj);
         this.className = name;
         this._super = sub.__parentContructor__ = this.constructor;
-        this._super.subclasses = (this._super.subclasses ? (this._super.subclasses.push(sub) && this._super.subclasses): [sub]) 
+        this._super.subclasses = (this._super.subclasses ? (this._super.subclasses.push(sub) && this._super.subclasses): [sub]);
         return this.constructor = sub;
       }
     };
     return CruxObject;
   })()
-};
+});
 
 
 
@@ -1227,7 +1238,7 @@ _.extend(_events, {
       return obj[type].__latchEvent__;
     }
   },
-    
+  
   
   /***************************************************************/
   //setOneTimeEvent
@@ -1240,9 +1251,9 @@ _.extend(_events, {
     //is one, but hasn't fired yet so it doesn't need to be reset 
     if(e === false){ return 0; }
     //if it's already been "closed", unlatch it
-    e && _unlatch(target, type);
+    e && _events.unlatch(target, type);
     //re-set up the trap event
-    _latch(target, type);
+    _events.latch(target, type);
     return 1;
   },
   
@@ -1940,14 +1951,13 @@ _.extend(_str, {
 //---------------------------------------------------------------
 // DOM Module
 //---------------------------------------------------------------
+var _dom;
 
-function _dom(selector, context){
-  return new _dom.DOMSelection(selector, context, arguments[2]);
-}
+(function(){ //encapulate dom internals
 
-(function(){ //encapulate
+function dom(selector, context){ return new dom.DOMSelection(selector, context, arguments[2]); }
 
-_.extend(_.dom = _dom, {
+_.extend(_dom = _.dom = dom, {
   //we can't assign this until Sizzle is instanciated at the end of this file 
   selectorEngine: null, //by default will be Sizzle()
   selectorEngine_matches: null, //by default will be Sizzle.matches()
@@ -2636,89 +2646,99 @@ _.extend(_.dom = _dom, {
 // AJAX Module
 //-----------------------------------------------------------------------------------------------------
 (function(){
-  //if the jsonp callback container doesn't exist yet, create it
-  _.getData(window, '__cruxCallbacks__') || _.setData(window, '__cruxCallbacks__', {});
-  
   var inProgress = [];
+  
+  function addToProgressArray(e){ inProgress.push(e.target); }
+  function removeFromProgressArray(e){
+    var ind = inProgress.indexOf(e.target);
+    (ind > -1) && inProgress.splice(ind, 1);
+  }
   
   var Request = (new _.Object).subclass({
     className: "Request",
-    init: function(obj){
-      //console.log("request", arguments);
-      _events.latch(this, 'start complete success failure abort');
-      _events.listen(this, 'start', function(e){ inProgress.push(e.target); });
-      _events.listen(this, 'complete', function(e){ inProgress.splice(inProgress.indexOf(e.target), 1); });
+    init: function init(obj){
+      //_.setData(this, 'method', 'GET');
+      //console.log("Request init", arguments, this);
+      _events.relatch(this, 'start complete success failure abort');
+      _events.listen(this, 'start', addToProgressArray);
+      _events.listen(this, 'complete', removeFromProgressArray);
       
       var defaults = {
         method: 'GET',
         type: "xhr",
+        guid: _.guid(), //create a unique identifier string
+        responseCode: undefined,
         parentNode: _ajax
       };
-      this.extendKeys(_.keys(defaults), defaults, obj);
       
-      return this;
+      this.extendKeys(_.keys(defaults), defaults, obj);
     }
   });
   
-  _.r = Request;
   
   var XHR = (new Request).subclass({
     "className": "XHR",
     "init": function(){
       console.log("xhr", arguments);
     },
-    "execute": function(){},
-    "x": "a"
+    "execute": function(){
+      var h = XMLHttpRequest();
+      return h;
+    }
   });
   
   
   var JSONPRequest = (new Request).subclass({
     "className": "JSONPRequest",
-    "init": function(obj){
+    "init": function init(obj){
+      //console.log("JSONPRequest init", arguments, this);
       var success, failure, complete;
-      //default to 'callback' as the name of the variable the server will look for (in the GET request) and
-      //use it's content as the javascript callback function in the response. 
+      
       var defaults = {
         url: '',
         timeout: 30,
         method: 'JSONP',
+        type: 'jsonp',
+        //default to 'callback' as the name of the variable the server will look for (in the GET request) and
+        //use it's content as the javascript callback function in the response. 
         serverCallbackName: 'callback'
       };
-      this.extendKeys(_.keys(defaults), defaults, obj);
+      
       
       if(obj){
-        success = obj.success || null;
-        failure = obj.failure || null;
-        complete = obj.complete || null;
+        obj.success && _events.listen(this, 'success', obj.success);
+        obj.failure && _events.listen(this, 'failure', obj.failure);
+        obj.complete && _events.listen(this, 'complete', obj.complete);
       }
-      success && _events.listen(this, 'success', function(e){ success.call(this, e.data); });
-      failure && _events.listen(this, 'failure', function(e){ failure.call(this, e.data); });
-      complete && _events.listen(this, 'complete', function(e){ complete.call(this, e.data); });
-
-      return this;
+      
+      this.extendKeys(_.keys(defaults), defaults, obj);
     },
     execute: function execute(){
       //define the "request complete" flag.
       var done,
           //maintain a reference to "this" for using within event listeners (their "this" is the current event target)
           ths = this,
-          //create a unique identifier string
-          guid = '_' + _.guid(),
           //if the url already has a ? then add an &; otherwise, add a ?.
-          url = this.url + ((this.url.indexOf('?')+1) ? '&' : '?') + this.serverCallbackName +'=__cruxData__.' + guid;
-      
+          url = this.url + ((this.url.indexOf('?')+1) ? '&' : '?') + this.serverCallbackName +'=__cruxData__._' + this.guid;
+      //
+      _events.fire(ths, 'start');
       //add a name value pair for passing the callback function name we generated.
       //create a global function with our function name 
-      _.setData(window, guid, function(d){
+      _.setData(window, '_' + this.guid, function(d){
         done = true;
         cleanUp();
+        ths.data = d;
+        ths.allData = _slice.call(arguments, 0); //in case the callback has multiple arguments
+        ths.responseCode = 1;
         //pass all arguments to our success function
-        _events.fire(ths, 'success', {data: d});
+        _events.fire(ths, 'success', {cancelable: false, manualBubble: true});
+        _events.fire(ths, 'complete', {cancelable: false, manualBubble: true});
       });
       
       //now, set the src attribute to our url with the callback added (if there was a callback function provided)
       //create a new script element
-      var el = _dom.make('script', {type: 'text/javascript', src: url});
+      //var el = _dom.make('script', {type: 'text/javascript', src: url});
+      var el = _dom.make('script', {type: 'text/javascript'});
       
       //add event handlers to the script element's onerror, onload, and onreadystatechanged events (try to detect success or failure)
       _events.listen(el, 'load error', cleanUp);
@@ -2726,6 +2746,7 @@ _.extend(_.dom = _dom, {
         var rs = e.target && e.target.readyState;
         rs && (rs == 'loaded' || rs == 'complete') && cleanUp();
       });
+      el.setAttribute('src', url);
       //append the new script element to the <head> element
       document.getElementsByTagName('head')[0].appendChild(el);
       //set a timeout for the request.
@@ -2734,9 +2755,8 @@ _.extend(_.dom = _dom, {
       
       //cleanup routine to remove the window timeout, callback function reference, 
       function cleanUp(e){
-        
         //console.log('cleanUp', 'done: ' + done, arguments, e && e.type);
-        _.setData(window, guid, undefined);
+        _.setData(window, '_' + ths.guid, undefined);
         //if the timeout is still active
         window.clearTimeout(requestTimeout);
         if(el){
@@ -2746,12 +2766,19 @@ _.extend(_.dom = _dom, {
         }
         if(!done){
           done = true;
-          //if there was a failure function specified, fire it as a 400 http error
-          _events.fire(ths, 'failure', {data: arguments});
+          //console.log('failure fire');
+          ths.responseCode = 0;
+          _events.fire(ths, 'failure', {data: arguments, cancelable: false, manualBubble: true});
+          _events.fire(ths, 'complete', {cancelable: false, manualBubble: true});
         }
       }
       
       return el;
+    },
+    abort: function abort(){
+      ths.responseCode = -1;
+      _events.fire(ths, 'abort', {cancelable: false, manualBubble: true});
+      _events.fire(ths, 'complete', {cancelable: false, manualBubble: true});
     }
   });
   
