@@ -748,10 +748,11 @@ var _events  = _.events = {};
 (function(){
   
 //the function that will be called when the actual event is fired.
+//for ie it will be called with the scope fixed so that the "this" is correct 
+//and the event object is passed as the first argument 
 function _executeListeners(ev){
-  
   var r, o, listeners,
-      objEvent = (ev = ev || window.event),
+      objEvent = (ev),
       obj = _.getData(this, '__listeners__');
   
   if(!(objEvent instanceof _events.Event)){
@@ -775,33 +776,24 @@ function _executeListeners(ev){
       if(objEvent.immediateStopped && objEvent.immediateStopped()){
         break;
       }
-      else if(_events.namespaceMatch(objEvent.eventNamespace, o.namespace)){
+      if(_events.namespaceMatch(objEvent.eventNamespace, o.namespace)){
         //encapsulate the execution of the listener inside a browser event
         if(o.once){ _events.unlisten(this, (o.namespace ? o.namespace + '.': '') + objEvent.type, o.fn); }
         //update the "listenerNamespace" property on the event object with the current listener namespace
         objEvent.listenerNamespace = o.namespace;
-        //console.log(objEvent, objEvent.__eventModel__, objEvent.eventModel);
-        /*
-        if(1==2 && objEvent.eventModel == 3){
-          r = _events.BEEP(o.fn, [objEvent], this);
-        }
-        else{
-          r = o.fn.call(this, objEvent);
-        }
-        */
-        r = _events.BEEP(o.fn, [o.noWrap ? objEvent.nativeEvent : objEvent], this);
+        //
         //r = o.fn.call(this, o.noWrap ? objEvent.nativeEvent : objEvent);
-        
-        if(r === false || (objEvent.type === 'beforeunload' && _.isString(r))){
-          objEvent.returnValue = r;
-        }
-        else{
-          r = objEvent.returnValue;
-        }
+        //execute the listener and if it returns false, prevent the event default
+        (r = _events.BEEP(o.fn, [o.noWrap ? objEvent.nativeEvent : objEvent], this)) === false && objEvent.prevent();
+        //if it was the beforeunload event, they might try and return a string (used to prompt the user) 
+        (objEvent.type === 'beforeunload' && _.isString(r)) && (objEvent.returnValue = r);
       }
     }
   }
-  this === window && !objEvent.prevented() && _doDefaultActions(objEvent);
+  //if the crux event obejct returnValue was updated, update the native event object return value
+  objEvent.nativeEvent.returnValue = objEvent.returnValue;
+  //if this is the window object and we haven't already prevented the default action, execute the default actions function
+  (this === window) && !objEvent.prevented() && _doDefaultActions(objEvent);
   //return the event return value
   return objEvent.returnValue;
 }
@@ -944,12 +936,7 @@ _.extend(_events, {
     //TODO: figure out if we need to allow adding a listener for each namespace
     if(listeners.length == 0 || !listeners.some(function(o){ return o.fn == listener; })){
       //just push the listener onto the end of the array
-      listeners.push(o = {
-        fn: listener,
-        namespace: eventNamespace,
-        once: !!once,
-        noWrap: !!noWrap
-      });
+      listeners.push({fn: listener, namespace: eventNamespace, once: !!once, noWrap: !!noWrap});
     }
     //the listener has already been added
     else{
@@ -968,11 +955,11 @@ _.extend(_events, {
       //it's Internet Explorer and we already detected event model 2 or the event is supported
       else if(target.attachEvent && (listeners.__eventModel__ == 2 || _events.supported(type, target))){
         //attach the event using the IE event model (bubble only)
-        target.attachEvent('on' + type, o.scopeFixer = function(e){ _executeListeners.call(target, e); });
+        target.attachEvent('on' + type, listeners.scopeFixer = function(e){ _executeListeners.call(target, e || window.event); });
         //if it's the first time a listener has been added
         //add a listener to the window onunload event so that we can detach this event when the window unloads
         //(try to relase event listener memory on old IEs)
-        window.attachEvent('onunload', function(){ target.detachEvent('on' + type, o.scopeFixer); });
+        window.attachEvent('onunload', function(){ target.detachEvent('on' + type, listeners.scopeFixer); });
         //the event model used to add the event listener
         listeners.__eventModel__ = 2;
       }
@@ -985,7 +972,7 @@ _.extend(_events, {
           //record the old value (in case someone manually assigned a listener already, or it was in the HTML)
           var fnOldStyleFunction = target['on' + type];
           //assign our listener
-          target['on' + type] = (o.scopeFixer = function(e){ _executeListeners.call(target, e); });
+          target['on' + type] = (listeners.scopeFixer = function(e){ _executeListeners.call(target, e || window.event); });
           //and if the old function is 
           if(typeof fnOldStyleFunction == 'function'){
             //add the old manual style event listener (global namespace)
@@ -1054,9 +1041,9 @@ _.extend(_events, {
               target.removeEventListener(type, _executeListeners, false);
             }
             else if(listeners.__eventModel__ == 2){
-              target.detachEvent('on' + type, o.scopeFixer);
+              target.detachEvent('on' + type, listeners.scopeFixer);
             }
-            else if(target['on' + type] == o.scopeFixer){
+            else if(target['on' + type] == listeners.scopeFixer){
               target['on' + type] = undefined;
               //delete target['on' + type];
             }
