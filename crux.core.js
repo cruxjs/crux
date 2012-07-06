@@ -177,11 +177,6 @@ var _ = window[_externalName] = {
   version  : _version,
   config   : _config,
   detected : _detected,
-  /*
-  events   : _events,
-  str      : _str,
-  ajax     : _ajax,
-  */
   _cache   : _cache,
 
   ready: function ready(fn){ _events.listen(document, 'ready', fn); },
@@ -794,7 +789,8 @@ function _executeListeners(ev){
           r = o.fn.call(this, objEvent);
         }
         */
-        r = o.fn.call(this, o.noWrap ? objEvent.nativeEvent : objEvent);
+        r = _events.BEEP(o.fn, [o.noWrap ? objEvent.nativeEvent : objEvent], this);
+        //r = o.fn.call(this, o.noWrap ? objEvent.nativeEvent : objEvent);
         
         if(r === false || (objEvent.type === 'beforeunload' && _.isString(r))){
           objEvent.returnValue = r;
@@ -805,12 +801,38 @@ function _executeListeners(ev){
       }
     }
   }
+  this === window && !objEvent.prevented() && _doDefaultActions(objEvent);
   //return the event return value
   return objEvent.returnValue;
+}
+
+
+
+function _doDefaultActions(e){
+  var el = e.target,
+      type = e.type,
+      listenerContainer,
+      listeners,
+      actions, i, l;
+  while(el){
+    listeners = actions = null;
+    listenerContainer = _.getData(el, '__listeners__');
+    listenerContainer && (listeners = listenerContainer[type]);
+    listeners && (actions = listeners.defaulActions);
+    if(_.isArray(actions) && actions.length){
+      for(i=0, l=actions.length; i< l; i++){
+        //actions[i].call(el, e);
+        _events.BEEP(actions[i], [e], el);
+      }
+    }
+    el = el.parentNode;
+  }
 }
   
 
 _.extend(_events, {
+  //
+  emptyListener: function(){},
   /***************************************************************/
   //---------------------------------------------------------------------------
   //_demux
@@ -818,7 +840,6 @@ _.extend(_events, {
   //collections and space separated strings, calling the "this" for each combination of arguments
   // eg. _demux.call(_listen, "div, .someClass", ")
   //---------------------------------------------------------------------------
-  
   _demux: function _demux(fn, demuxTarget, targets, types){
     var successes = 0, i, il, j, jl;
     //resolve the selector string if that's what "targets" contains
@@ -855,10 +876,9 @@ _.extend(_events, {
         once = arguments[4],
         emulated = _events.emulated,
         eventNamespace = '',
-        arResults,
-        i, l, //iterator and length for looping
         savedSelector = target,
-        e,
+        arResults,
+        i, l, e, o, //iterator, length for looping, event object
         listeners,
         listenerContainer;
     
@@ -912,7 +932,6 @@ _.extend(_events, {
       _events.listen(emulated[type].attachToElement || target, emulated[type].attachToEvent, function(e){ return emulated[type].fn && emulated[type].fn.call(target, e); }, true);
     }
     
-    
     //if this is a one-time event (such as window 'load'), and it has already been fired,
     //(supposed to be a single equals sign, we're assigning the value to e, then testing if it's truthy)  
     if(e = _events.latchClosed(target, type)){
@@ -925,7 +944,12 @@ _.extend(_events, {
     //TODO: figure out if we need to allow adding a listener for each namespace
     if(listeners.length == 0 || !listeners.some(function(o){ return o.fn == listener; })){
       //just push the listener onto the end of the array
-      listeners.push({fn: listener, namespace: eventNamespace, once: !!once, noWrap: !!noWrap});
+      listeners.push(o = {
+        fn: listener,
+        namespace: eventNamespace,
+        once: !!once,
+        noWrap: !!noWrap
+      });
     }
     //the listener has already been added
     else{
@@ -937,20 +961,18 @@ _.extend(_events, {
     //add the event listener. specify false for the last argument to use the bubbling phase (to mirror IE's limitation to only bubble)
     //(if the addEventListener method returns false, move to the next event model)
     if(!listeners.hooked){
-      var scopeFixer = function(e){ _executeListeners.call(target, e); };
       if(target.addEventListener && target.addEventListener(type, _executeListeners, false) !== false){
         //return the event model used to add the event listener
         listeners.__eventModel__ = 1;
       }
-      //Internet Explorer
-      //typeof target['on' + type] != 'undefined' &&
+      //it's Internet Explorer and we already detected event model 2 or the event is supported
       else if(target.attachEvent && (listeners.__eventModel__ == 2 || _events.supported(type, target))){
         //attach the event using the IE event model (bubble only)
-        target.attachEvent('on' + type, scopeFixer);
+        target.attachEvent('on' + type, o.scopeFixer = function(e){ _executeListeners.call(target, e); });
         //if it's the first time a listener has been added
         //add a listener to the window onunload event so that we can detach this event when the window unloads
         //(try to relase event listener memory on old IEs)
-        window.attachEvent('onunload', function(){ target.detachEvent('on' + type, scopeFixer); });
+        window.attachEvent('onunload', function(){ target.detachEvent('on' + type, o.scopeFixer); });
         //the event model used to add the event listener
         listeners.__eventModel__ = 2;
       }
@@ -963,7 +985,7 @@ _.extend(_events, {
           //record the old value (in case someone manually assigned a listener already, or it was in the HTML)
           var fnOldStyleFunction = target['on' + type];
           //assign our listener
-          target['on' + type] = scopeFixer;
+          target['on' + type] = (o.scopeFixer = function(e){ _executeListeners.call(target, e); });
           //and if the old function is 
           if(typeof fnOldStyleFunction == 'function'){
             //add the old manual style event listener (global namespace)
@@ -975,9 +997,7 @@ _.extend(_events, {
       }
       listeners.hooked = true;
     }
-    
-    //return the event model that was used to attach the listener
-    //return listeners.__eventModel__;
+
     return 1;
   },
   
@@ -989,8 +1009,8 @@ _.extend(_events, {
     var eventNamespace = '',
         returnValue = [],
         arResults,
-        listeners,
         listenerContainer,
+        listeners,
         i, l, o;
         
     type = (type == null) ? '*' : type;
@@ -1006,9 +1026,7 @@ _.extend(_events, {
     }
     
     //if we aren't able to get a reference to the ddplisteners object, quit
-    if(!(listenerContainer = _.getData(target, '__listeners__'))){
-      return returnValue;
-    }
+    if(!(listenerContainer = _.getData(target, '__listeners__'))){ return returnValue; }
     
     if(type == '*'){
       arResults = [];
@@ -1030,15 +1048,15 @@ _.extend(_events, {
         
         if((o.fn == listener || !listener) && _events.namespaceMatch(eventNamespace, o.namespace)){
           listeners.splice(i, 1);
-          //if the last event listener was just removed. should we clean up arrays and tracking objects?
+          //if the last event listener was just removed
           if(--l==0){
             if(listeners.__eventModel__ == 1){
               target.removeEventListener(type, _executeListeners, false);
             }
             else if(listeners.__eventModel__ == 2){
-              target.detachEvent('on' + type, _executeListeners);
+              target.detachEvent('on' + type, o.scopeFixer);
             }
-            else if(target['on' + type] == _executeListeners){
+            else if(target['on' + type] == o.scopeFixer){
               target['on' + type] = undefined;
               //delete target['on' + type];
             }
@@ -1102,8 +1120,9 @@ _.extend(_events, {
     //set some properties that will be passed to the event object
     objEvent = _.clone(obj, false, _events.Event);
     objEvent.eventNamespace = eventNamespace;
-    objEvent.manualBubble = !!(obj.manualBubble || (obj.bubbles && !_isElement(target, true, true)));
+    objEvent.manualBubble = !!(obj.manualBubble || (obj.bubbles && !_.isElement(target, true, true)));
     objEvent.bubbles = !!(objEvent.bubbles || objEvent.manualBubble);
+    objEvent.type = type;
     
     if((eventModel == 1 || !eventModel) && target.dispatchEvent){
       //obj.eventModel = 
@@ -1136,6 +1155,9 @@ _.extend(_events, {
       while(objEvent.manualBubble && !objEvent.stopped() && objEvent.currentTarget.parentNode){
         _executeListeners.call(objEvent.currentTarget.parentNode, objEvent);
       }
+      //when we're done executing listeners, and the default action wasn't cancelled and the target isn't an element
+      //execute the default actions 
+      objEvent.returnValue !== false && !_.isElement(target, true, true) && _doDefaultActions(objEvent);
     }
       
     //return the event object
@@ -1143,7 +1165,18 @@ _.extend(_events, {
   },
   
   
-  
+  addDefaultAction: function addDefaultAction(target, type, fn){
+    var listenerContainer = _.getData(target, '__listeners__') || _.setData(target, '__listeners__', {}),
+        listeners = (listenerContainer && _.isArray(listenerContainer[type])) ? listenerContainer[type] : listenerContainer[type] = [],
+        actions = listeners.defaulActions || (listeners.defaulActions = []);
+    if(actions.indexOf(fn) < 0){
+      actions.push(fn);
+      _.isElement(target, true) && _events.listen(window, 'system.defaultAction.' + type, _events.emptyListener);
+      return 1;
+    }
+    return 0;
+  },
+
   
   //--------------------------------------------------------------------------------------------
   //listeners
@@ -1191,6 +1224,7 @@ _.extend(_events, {
     }
     return arResults;
   },
+ 
  
   latch: function latch(target, type){
     if(_.isString(target) || (_.isString(type) && type.indexOf(' ') > -1) || _.isArray(type)){
@@ -1585,26 +1619,33 @@ _.extend(_events, {
         type = 'cruxBEEPEvent',
         opc = "onpropertychange",
         //event object, function to encapsulate, this, arguments, return value
-        w3cEvent, f, t, a, r;
+        w3cEvent, f, t, a,
+        r = [];
     //some fuctionality for allowing custom events to be executed within an actual browser event listener
     //(allows for a less tragic result when errors are encountered within the event handlers)
     if(el){
       //w3c
       if(el.addEventListener){
         //add the w3c event listsner for a custom event (cruxBEEPEvent)
-        el.addEventListener(type, function(objEvent){ r = f.apply(t, a); }, false);
+        el.addEventListener(type, function(objEvent){ r.push(f.apply(t, a)); }, false);
         
         return function BEEP(fn, args, ths){
           f = fn;
           t = ths || null;
           a = args;
-          r = undefined;
+          //r = undefined;
           //re-use the previous browser event object, if it exists
-          w3cEvent = w3cEvent || _events._createBrowserEventObject(type, {"cancelable": false, "bubbles": false});
+          //w3cEvent = (w3cEvent && !w3cEvent.inUse ? w3cEvent : _events._createBrowserEventObject(type, {"cancelable": false, "bubbles": false}));
+          w3cEvent = _events._createBrowserEventObject(type, {"cancelable": false, "bubbles": false});
+          //mark the event object as being in use (so we don't try and dispatch another event within this event handler using the same event object)
+          w3cEvent.inUse = true;
           //firing the DDPAERMEvent on the document element (usually <HTML>), executes "currentHandler" within a browser event
           //which provides the ability to show errors but keep them from breaking the rest of the framework
           el.dispatchEvent(w3cEvent);
-          return r;
+          //we're done with it, it can be re-used now
+          w3cEvent.inUse = false;
+          //r will have been populated by the return value of the passed function
+          return r.pop();
         };
       }
       //ie<9
@@ -1621,17 +1662,19 @@ _.extend(_events, {
         if(testEvent.fired){
           //add the listener that will always exist and execute the passed in function
           //(in the listener, check that it was the "cruxBEEPEvent" property that was changed and execute the listener, if there is one)
-          el.attachEvent(opc, function(){ (event.propertyName === type) && f && (r = f.apply(t, a)); });
+          el.attachEvent(opc, function(){ (event.propertyName === type) && f && (r.push(f.apply(t, a))); });
           //return a function that will set the propr local vars and trigger the browser event
           return function BEEP(fn, args, ths){
             f = fn;
             t = ths || null;
             a = args;
-            r = undefined;
             //this fires the IE "onpropertychange" event on the documentElement (flips the value between 1 and -1)
-            //which executes the currentHandler from within an actual browser event
+            //which executes "fn" from within a browser event
             el[type] *= -1;
-            return r;
+            //var rv;
+            //try{console.log(rv = r.pop());}catch(x){}
+            //return rv;
+            return r.pop();
           };
         }
       }
@@ -1674,8 +1717,6 @@ _.extend(_events, {
   
   Event : (function (){
     function CruxEvent(obj){
-      //this.nativeEvent = {};
-      this._defaultPrevented = false;
       obj && this.normalize(obj);
     }
     CruxEvent.prototype = {
@@ -1743,7 +1784,7 @@ _.extend(_events, {
         return obj.returnValue = false;
       },
       prevented: function(){
-        return !this.nativeEvent.returnValue;
+        return this.nativeEvent.returnValue === false;
       },
       stop: function(){
         var obj = this.nativeEvent;
