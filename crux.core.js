@@ -290,7 +290,6 @@ var _ = window[_externalName] = {
     for(j = 1, jl = arguments.length; j<jl; objAdd = arguments[++j]){
       if(objAdd && objAdd.length){
         if(!unique && (_detected.sliceNodeLists || (oia && _.isArray(objAdd)))){
-          //console.log([obj.length,0].concat(_slice.call(objAdd, 0)));
           _splice.apply(obj, [obj.length,0].concat(_.isArray(objAdd) ? objAdd : _slice.call(objAdd, 0)));
         }
         else{
@@ -1600,30 +1599,32 @@ _.extend(_events, {
   
   //Browser Encapsulated Event Procedure
   //executes a function within the context of a browser event.
-  //provides the ability to stop errors from stopping all handlers from failing 
+  //provides the ability to stop errors from stopping all handlers from failing
+  //(allows for a less tragic result when errors are encountered within the event handlers)
   BEEP: (function(){
     var el = document.documentElement,
-        type = 'cruxBEEPEvent',
-        opc = "onpropertychange",
+        cbe = 'cruxBEEPEvent',
+        opc = 'onpropertychange',
         //event object, function to encapsulate, this, arguments, return value
         w3cEvent, f, t, a,
+        //return value
         r = [];
-    //some fuctionality for allowing custom events to be executed within an actual browser event listener
-    //(allows for a less tragic result when errors are encountered within the event handlers)
     if(el){
-      //w3c
+      //w3c event model support
       if(el.addEventListener){
         //add the w3c event listsner for a custom event (cruxBEEPEvent)
-        el.addEventListener(type, function(objEvent){ r.push(f.apply(t, a)); }, false);
+        el.addEventListener(cbe, function(objEvent){
+          //push the return value onto the array (allow for )
+          r.push(f.apply(t, a));
+        }, false);
         
         return function BEEP(fn, args, ths){
           f = fn;
           t = ths || null;
           a = args;
-          //r = undefined;
-          //re-use the previous browser event object, if it exists
-          //w3cEvent = (w3cEvent && !w3cEvent.inUse ? w3cEvent : _events._createBrowserEventObject(type, {"cancelable": false, "bubbles": false}));
-          w3cEvent = _events._createBrowserEventObject(type, {"cancelable": false, "bubbles": false});
+          //re-use the previous browser event object, if it exists, and it's not already in use
+          w3cEvent = (w3cEvent && !w3cEvent.inUse ? w3cEvent : _events._createBrowserEventObject(cbe, {"cancelable": false, "bubbles": false}));
+          //w3cEvent = _events._createBrowserEventObject(cbe, {"cancelable": false, "bubbles": false});
           //mark the event object as being in use (so we don't try and dispatch another event within this event handler using the same event object)
           w3cEvent.inUse = true;
           //firing the DDPAERMEvent on the document element (usually <HTML>), executes "currentHandler" within a browser event
@@ -1642,14 +1643,14 @@ _.extend(_events, {
         //if the browser supports the event, the "fired" flag is set
         function testEvent(){ testEvent.fired = true; }
         //changing the "cruxBEEPEvent" property of the document element should trigger the onpropertychange event (if it's supported)
-        el[type] = 1;
+        el[cbe] = 1;
         //detach the test listener, so it isn't repeatedly executed
         el.detachEvent(opc, testEvent);
         //if the browser supports the onproprtychange event
         if(testEvent.fired){
           //add the listener that will always exist and execute the passed in function
           //(in the listener, check that it was the "cruxBEEPEvent" property that was changed and execute the listener, if there is one)
-          el.attachEvent(opc, function(){ (event.propertyName === type) && f && (r.push(f.apply(t, a))); });
+          el.attachEvent(opc, function(){ (event.propertyName === cbe) && f && (r.push(f.apply(t, a))); });
           //return a function that will set the propr local vars and trigger the browser event
           return function BEEP(fn, args, ths){
             f = fn;
@@ -1657,10 +1658,7 @@ _.extend(_events, {
             a = args;
             //this fires the IE "onpropertychange" event on the documentElement (flips the value between 1 and -1)
             //which executes "fn" from within a browser event
-            el[type] *= -1;
-            //var rv;
-            //try{console.log(rv = r.pop());}catch(x){}
-            //return rv;
+            el[cbe] *= -1;
             return r.pop();
           };
         }
@@ -1683,12 +1681,13 @@ _.extend(_events, {
       var i = sc.length;
       //make sure the elements have the same number of children
       if(i == dc.length){
-        while(i-- && sc[i] && cd[i]){
-          cloneListeners(sc[i], cd[i], true);
+        while(i-- && sc[i] && dc[i]){
+          cloneListeners(sc[i], dc[i], true);
         }
       }
     }
-    if(_.isElement(dest, true) || dest == window){
+    //if it's an element (or document or window)
+    if(_.isElement(dest, true, true)){
       for(var key in v){
         if(_hasOwnProperty.call(v, key)){
           v[key].__eventModel__ = null;
@@ -2297,8 +2296,8 @@ _.extend(_dom = _.dom = dom, {
       _dom.addClass(el, objAttributes.className || objAttributes.classname);
     }
     for(key in objEvents){
-      if(_hasOwnProperty.call(objEvent, key)){
-        _events.listen(el, key, objEvent[key]);
+      if(_hasOwnProperty.call(objEvents, key)){
+        _events.listen(el, key, objEvents[key]);
       }
     }
     //TODO: add the appendTo functionality when we've figured out how that will work
