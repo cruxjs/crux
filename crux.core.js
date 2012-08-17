@@ -2268,11 +2268,6 @@ _.extend(_dom = _.dom = dom, {
   //Creates an element and assigns attributes css classes and 
   make: function make(tagName, objAttributes, objEvents, elAppendTo){
     var el, key, attrs = '';
-    /*
-    if(!elAppendTo){
-      setData(el, '_ddpDetached', true); //serious thought should be put into whether this line should be left in...
-    }
-    */
     //fix for an ie issue where, unless the element is created with a "name" attribute in
     //the funky ie syntax, radio groups dont' work properly
     if(_detected.IECreateElement){
@@ -2300,24 +2295,26 @@ _.extend(_dom = _.dom = dom, {
         _events.listen(el, key, objEvents[key]);
       }
     }
-    //TODO: add the appendTo functionality when we've figured out how that will work
+    //if an "elAppendTo" arguments was passed, append the new element to that element
+    elAppendTo && _dom.append(el, elAppendTo);
     /*
-    if(elAppendTo){
-      appendElement(el, elAppendTo);
+    if(!elAppendTo){
+      setData(el, '_ddpDetached', true); //serious thought should be put into whether this line should be left in...
     }
     */
     return el;
   },
   
+  
   geometry: function(){
     //these won't necessarily contain valid references, but it
     //will prevent a bunch of scope chain lookups further in.
-    var w = window;
-    var documentElement = document.documentElement;
-    var body = document.body;
+    var w = window,
+        de = document.documentElement,
+        body = document.body;
     
     //set up the caching flag listener
-    _events.listen(window, 'scroll resize', function(o){ _cache.geometryChanged = true; }, true);
+    _events.listen(w, 'scroll resize', function(o){ _cache.geometryChanged = true; }, true);
     
     var docGeometry = function(){
       if(w.innerHeight && w.scrollMaxY){ // Firefox
@@ -2370,10 +2367,10 @@ _.extend(_dom = _.dom = dom, {
         var ch = _cache.geometryChanged;
         _cache.geometryChanged = false;
         return ((!ch && _cache.geometry) ? _cache.geometry : _cache.geometry = {
-          viewportWidth   : documentElement.clientWidth,
-          viewportHeight  : documentElement.clientHeight,
-          horizontalScroll: documentElement.scrollLeft,
-          verticalScroll  : documentElement.scrollTop,
+          viewportWidth   : de.clientWidth,
+          viewportHeight  : de.clientHeight,
+          horizontalScroll: de.scrollLeft,
+          verticalScroll  : de.scrollTop,
           documentWidth   : dg.width,
           documentHeight  : dg.height
         });
