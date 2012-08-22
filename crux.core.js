@@ -802,16 +802,10 @@ function _executeListeners(ev){
 function _doDefaultActions(e){
   var el = e.target,
       type = e.type,
-      listenerContainer,
-      listeners,
       actions, i, l;
-  while(el){
-    listeners = actions = null;
-    listenerContainer = _.getData(el, '__listeners__');
-    listenerContainer && (listeners = listenerContainer[type]);
-    listeners && (actions = listeners.defaulActions);
-    if(_.isArray(actions) && actions.length){
-      for(i=0, l=actions.length; i< l; i++){
+  while(el && type){
+    if(_.isArray(actions = _.lastValue(type + '.defaultActions', _.getData(el, '__listeners__')))){
+      for(i=0, l=actions.length; i<l; i++){
         //actions[i].call(el, e);
         _events.BEEP(actions[i], [e], el);
       }
