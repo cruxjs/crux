@@ -803,14 +803,16 @@ function _doDefaultActions(e){
   var el = e.target,
       type = e.type,
       actions, i, l;
-  while(el && type){
-    if(_.isArray(actions = _.lastValue(type + '.defaultActions', _.getData(el, '__listeners__')))){
-      for(i=0, l=actions.length; i<l; i++){
-        //actions[i].call(el, e);
-        _events.BEEP(actions[i], [e], el);
+  if(type){
+    while(el){
+      if(_.isArray(actions = _.lastValue(type + '.defaultActions', _.getData(el, '__listeners__')))){
+        for(i=0, l=actions.length; i<l; i++){
+          //actions[i].call(el, e);
+          _events.BEEP(actions[i], [e], el);
+        }
       }
+      el = el.parentNode;
     }
-    el = el.parentNode;
   }
 }
   
@@ -1148,7 +1150,7 @@ _.extend(_events, {
   addDefaultAction: function addDefaultAction(target, type, fn){
     var listenerContainer = _.getData(target, '__listeners__') || _.setData(target, '__listeners__', {}),
         listeners = (listenerContainer && _.isArray(listenerContainer[type])) ? listenerContainer[type] : listenerContainer[type] = [],
-        actions = listeners.defaulActions || (listeners.defaulActions = []);
+        actions = listeners.defaultActions || (listeners.defaultActions = []);
     if(actions.indexOf(fn) < 0){
       actions.push(fn);
       _.isElement(target, true) && _events.listen(window, 'system.defaultAction.' + type, _events.emptyListener);
