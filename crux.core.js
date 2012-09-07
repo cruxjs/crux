@@ -219,7 +219,7 @@ var _ = window[_externalName] = {
     var key, source, i, il, j, jl = keys.length;
     //if(keys === true){ return _.extend.apply(_slice.call(arguments, 1)); }
     obj = obj || {};
-    for(var i=1, l=arguments.length; i<l; i++){
+    for(i=1, l=arguments.length; i<l; i++){
       source = arguments[i];
       j = source ? jl : 0;
       while(j--){
@@ -282,12 +282,14 @@ var _ = window[_externalName] = {
   //mergeIndexes
   //does the same this as extend except with only numeric properties
   mergeIndexes: function mergeIndexes(obj, obj1, obj2){
-    var unique = (arguments[arguments.length-1] === true),
-        obj = (arguments[0] == null ? [] : arguments[0]),
-        objAdd = arguments[1],
+    obj = (obj == null ? [] : obj);
+    var jl = arguments.length,
+        unique = (arguments[jl-1] === true),
         oia = _.isArray(obj),
-        j, jl;
-    for(j = 1, jl = arguments.length; j<jl; objAdd = arguments[++j]){
+        objAdd, j;
+    unique && jl--;
+    for(j=1, objAdd=arguments[j]; j<jl; objAdd = arguments[++j]){
+      //console.log(arguments, j);
       if(objAdd && objAdd.length){
         if(!unique && (_detected.sliceNodeLists || (oia && _.isArray(objAdd)))){
           _splice.apply(obj, [obj.length,0].concat(_.isArray(objAdd) ? objAdd : _slice.call(objAdd, 0)));
@@ -1703,14 +1705,15 @@ _.extend(_events, {
     }
     CruxEvent.prototype = {
       normalize : function(obj){
-        var c = this.converters;
         obj = obj ? (this.nativeEvent = obj) : this.nativeEvent;
-        for(var k in c){ _hasOwnProperty.call(c, k) && (this[k] = (c[k] === true ? obj[k] : c[k](obj, this))); }
+        var c = this.converters,
+            nativeIsCruxEvent = obj instanceof CruxEvent;
+        for(var k in c){ _hasOwnProperty.call(c, k) && (this[k] = ((nativeIsCruxEvent || c[k] === true) ? obj[k] : c[k](obj, this))); }
         this.normalized = true;
         return this;
       },
       toString: function(){
-        return '[object CruxEvent]';
+        return '[object Event]';
       },
       converters: {
         //true indicated direct copy
@@ -1998,7 +2001,7 @@ _.extend(_dom = _.dom = dom, {
   
   append: function append(el, to){
     //TODO: code the extra stuff for appending an element to a parent
-    to.parentNode.appendChild(el);
+    to.appendChild(el);
     return el;
   },
   
@@ -2110,7 +2113,7 @@ _.extend(_dom = _.dom = dom, {
   //returns the effective CSS style on an element
   //TODO: apparently is broken in FF 12
   getStyle: function getStyle(el, str){
-    if(str=='opacity'){ return _dom.getOpacity(el); }
+    //if(str=='opacity'){ return _dom.getOpacity(el); }
     return (window.getComputedStyle && window.getComputedStyle(el, '').getPropertyValue(str))
             || (el.currentStyle && el.currentStyle[_.str.toCamel(str, true)])
             || '';
@@ -2118,11 +2121,12 @@ _.extend(_dom = _.dom = dom, {
   
   getOpacity: function getOpacity(el){
     //TODO: import code from ddp
-    return 0;
+    return _.dom.getStyle(el, 'opacity');
   },
   
   setOpacity: function setOpacity(el, val){
     //TODO: import code from ddp (use 0 to 1 range instead of 0 to 100)
+    return el.style.opacity = val;
   },
   
   //***************************************************************
@@ -2356,7 +2360,7 @@ _.extend(_dom = _.dom = dom, {
         });
       })();
     }
-    else if(documentElement && (documentElement.clientWidth || documentElement.clientHeight)){
+    else if(de && (de.clientWidth || de.clientHeight)){
       //IE 6+ in 'standards compliant mode'
       return (_dom.geometry = function geometry(){
         var dg = docGeometry();
@@ -2675,10 +2679,14 @@ var _ajax;
       _events.listen(this, 'start', addToProgressArray);
       _events.listen(this, 'complete', removeFromProgressArray);
       
+      if(obj){
+        obj.success && _events.listen(this, 'success', obj.success);
+        obj.failure && _events.listen(this, 'failure', obj.failure);
+        obj.complete && _events.listen(this, 'complete', obj.complete);
+      }
+      
       var defaults = {
-        method: 'GET',
         url: '',
-        type: "xhr",
         guid: _.guid(),  //create a unique identifier string
         responseCode: undefined,
         parentNode: _ajax
@@ -2692,10 +2700,20 @@ var _ajax;
   var XHR = (new Request).subclass({
     "className": "XHR",
     "init": function(){
+      this._super.prototype.init.call(this, obj);
+      
+      var defaults = {
+        method: 'GET',
+        type: 'xhr'
+      };
+      
+      this.extendKeys(_.keys(defaults), defaults, obj);
+      
       console.log("xhr", arguments);
     },
     "execute": function(){
       var h = XMLHttpRequest();
+      
       return h;
     }
   });
@@ -2743,8 +2761,8 @@ var _ajax;
         ths.allData = _slice.call(arguments, 0); //in case the callback has multiple arguments
         ths.responseCode = 1;
         //pass all arguments to our success function
-        _events.fire(ths, 'success', {cancelable: false, manualBubble: true});
-        _events.fire(ths, 'complete', {cancelable: false, manualBubble: true});
+        (_events.fire(ths, 'success', {cancelable: false, manualBubble: true}).returnValue !== false) &&
+          _events.fire(ths, 'complete', {cancelable: false, manualBubble: true});
       });
       
       //now, set the src attribute to our url with the callback added (if there was a callback function provided)
