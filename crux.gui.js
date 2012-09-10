@@ -72,23 +72,40 @@ var components;
   
   
   components = gui.components = {
-    Box: (new _.Object).subclass({
+    Box: _.Object.subclass({
       "init": function(attachTo){
         this.attachTo = attachTo || document.getElementsByTagName('body')[0];
         var el = this.element = _.dom.make('div', {"class": "GUIComponentBox"});
-        console.log('balls');
+      },
+      "show": function(endOpacity){
+        this.attachTo && (this.element.parentNode !== this.attachTo) && _.dom.append(this.element, this.attachTo);
+        gui.show(this.element, null, endOpacity || 1);
+        _.fire(this, 'show', {"bubbles": true});
+      },
+      "hide": function(){
+        gui.hide(this.element);
+        _.fire(this, 'hide', {"bubbles": true});
+      },
+      "setParent": function(obj){
+        this.parentNode = obj;
+      },
+      "center": function(){
+        var el = this.element;
+        var g = _.dom.geometry();
+        el.style.top  = (g.viewportHeight / 2) - (parseInt(el.style.height, 10) / 2) + 'px';
+        el.style.left = (g.viewportWidth / 2) - (parseInt(el.style.width, 10) / 2) + 'px';
       }
     })
   };
   
   _.extend(components, {
-    Overlay: (new components.Box).subclass({
+    Overlay: components.Box.subclass({
       "init": function(attachTo){
-        this._super.prototype.init();
-        //this.attachTo = attachTo || document.getElementsByTagName('body')[0];
-        //this.element
-        //var el = this.element = _.dom.make('div', {"class": "awesome", "style": "position: absolute; top: 0; left: 0; z-index: 100;background-color: #000;"});
-        _.listen(window, 'resize scroll', function(){ this.sizeToViewport(); });
+        this.attachTo = attachTo || document.body;
+        this._parent('init', arguments);
+        var ths = this;
+        _.extend(this.element.style,{position: 'absolute', top: 0, left: 0, "zIndex": 100, backgroundColor: '#000', opacity: .4});
+        _.listen(window, 'resize scroll', function(){ ths.sizeToViewport(); });
       },
       "sizeToViewport": function(){
         var el = this.element;
@@ -96,25 +113,25 @@ var components;
         el.style.height = g.viewportHeight + 'px';
         el.style.width = g.viewportWidth + 'px';
       },
-      "show": function(){
-        (this.element.parentNode !== this.attachTo) && _.dom.append(this.element, this.attachTo);
-        this.parentNode && (this.element.style.zIndex = _.dom.getStyle(this.parentNode.element, 'z-index') - 1);
+      "show": function(endOpacity){
+        this._parent('show', [endOpacity || .4]);
+        if(this.parentNode){
+          var x = +_.dom.getStyle(this.parentNode.element, 'z-index');
+          this.element.style.zIndex = isNaN(x) ? 1 : x - 1;
+        }
         this.sizeToViewport();
-        gui.show(this.element, null, .4);
-        _.fire(this, 'showoverlay', {"bubbles": true});
       },
-      "hide": function(){ gui.hide(this.element); },
       "setParent": function(obj){
-        var ths = this;
+        this._parent('setParent', arguments);
         this.parentNode = obj;
-        _.events.addDefaultAction(obj, 'show', function(){ ths.show(); })
-        _.events.addDefaultAction(obj, 'hide', function(){ ths.hide(); })
+        var ths = this;
+        _.events.addDefaultAction(obj, 'show', function(objEvent){ if(objEvent.target !== ths){ ths.show(); } });
+        _.events.addDefaultAction(obj, 'hide', function(objEvent){ if(objEvent.target !== ths){ ths.hide(); } });
       }
-      
     }, "Overlay"),
     
     
-    Button: (new _.Object).subclass({
+    Button: _.Object.subclass({
       "init": function(){
         var obj = this;
         var el = this.element = _.dom.make('div', {"class": "componentButton", "style": "position: absolute; height:20px; background-color: #f55;"});
@@ -123,35 +140,53 @@ var components;
         });
       },
       "setParent": function(obj){
-        obj.element && _.dom.append(this.element, obj.element);
         this.parentNode = obj;
+        obj.element && _.dom.append(this.element, obj.element);
       },
       "show": function(){ gui.show(this.element); },
       "hide": function(){ gui.hide(this.element); }
     }, "Button"),
     
+    Content: components.Box.subclass({
+      "init": function(){
+        this._parent('init', []);
+        _.dom.addClass(this.element, 'contentComponent');
+        _.extend(this.element.style, {
+          "backgroundColor": "#eee",
+          "border": "solid 1px #000",
+          "overflow": "auto",
+          "width": "400px",
+          "height": "300px"
+        })
+      },
+      "x": function(){}
+    }),
     
-    DragBox: (new _.Object).subclass({
+    DragBox: components.Box.subclass({
       init: function(attachTo){
+        //this._super.prototype.init.call(this);
+        this._parent('init', arguments);
         var obj = this;
-        
-        var el = this.element = _.dom.make('div', {
-          "class": "contentBox",
-          "style": [
-            "z-index: 500",
-            "top: 0",
-            "left: 0",
-            "position: absolute",
-            "background-color: #fff",
-            "border: solid 1px #000",
-            "width: 400px",
-            "height: 300px"
-          ].join(';') + ';'
+        var el = this.element;
+        _.dom.addClass(el, "contentBox");
+        _.extend(el.style,{
+          "z-index": "500",
+          "top": "0",
+          "left": "0",
+          "position": "absolute",
+          "zIndex": "500",
+          "width": "400px",
+          "height": "30px"
         });
+
         el.innerHTML = '<div class="dragHandle" style="position:absolute; top: -30px;border-bottom: solid 1px; background-color: #eee;">Drag Handle</div>';
         
         this.attachTo = attachTo || document.getElementsByTagName('body')[0];
         this.components = {};
+        
+        var content = this.addComponent('content', new gui.components.Content());
+        content.attachTo = this.element;
+        content.show();
         
         this.addComponent('overlay', new gui.components.Overlay());
         var cb = this.addComponent('closeButton', new gui.components.Button());
@@ -165,25 +200,37 @@ var components;
         ob.element.style.right = '20px';
         
         _.listen(this, 'click', function(objEvent){
-          //console.log(objEvent);
           if(objEvent.target == obj.components.closeButton){
             obj.hide();
           }
         });
         
+        _.listen(this.element, 'click', function(objEvent){
+          var el = _.dom.make('span');
+          el.innerHTML = objEvent.target.tagName + '.' + _.dom.getClass(objEvent.target) + '<br>'
+          obj.components.content.element.appendChild(el);
+        });
+        
+        
+        
         _.listen(el, 'mousedown', function(objEvent){
+          //console.log(objEvent.target.tagName + '.' + _.dom.getClass(objEvent.target));
           if(!_.dom.hasClass(objEvent.target, 'dragHandle')){
             return;
           }
+          
           objEvent.prevent();
           obj.initialMouseXY = [objEvent.x, objEvent.y];
           obj.initialBoxXY = [parseInt(_.dom.getStyle(el, 'left'), 10), parseInt(_.dom.getStyle(el, 'top'), 10)];
-          _.listen(window, 'mousemove', moveListener);
-          _.listen(window, 'mouseup', function(){
-            _.unlisten(window, 'mousemove', moveListener);
-            _.unlisten(window, 'mouseup', arguments.callee);
+          
+          _.listen(document, 'mousemove', moveListener);
+          
+          _.listen(document, 'mouseup', function mouseUpListener(){
+            _.unlisten(document, 'mousemove', moveListener);
+            _.unlisten(document, 'mouseup', mouseUpListener);
             _.fire(obj, 'move', {bubbles: true});
           });
+          
         });
         function moveListener(objEvent){
           el.style.left = obj.initialBoxXY[0] + (objEvent.x - obj.initialMouseXY[0]) + 'px';
@@ -201,23 +248,24 @@ var components;
         return obj;
       },
       
-      show: function(){
-        if(_.fire(this, 'show', {bubbles: true}).returnValue !== false){
-          this.center();
-          this.attachTo && _.dom.append(this.element, this.attachTo);
-          gui.show(this.element);
-        }
-      },
-      hide: function(){
-        if(_.fire(this, 'hide', {bubbles: true}).returnValue !== false){
-          gui.hide(this.element);
-        }
-      },
       center: function(){
         var el = this.element;
         var g = _.dom.geometry();
-        el.style.top  = (g.viewportHeight / 2) - (parseInt(el.style.height, 10) / 2) + 'px';
-        el.style.left = (g.viewportWidth / 2) - (parseInt(el.style.width, 10) / 2) + 'px';
+        el.style.top  = (g.viewportHeight / 2) - (parseInt(this.components.content.element.style.height, 10) / 2) + 'px';
+        el.style.left = (g.viewportWidth / 2) - (parseInt(this.components.content.element.style.width, 10) / 2) + 'px';
+      },
+      
+      
+      show: function(){
+        if(_.fire(this, 'beforeshow', {bubbles: true}).returnValue !== false){
+          this._parent('show');
+          this.center();
+        }
+      },
+      hide: function(){
+        if(_.fire(this, 'beforehide', {bubbles: true}).returnValue !== false){
+          this._parent('hide');
+        }
       }
     }, "DragBox")
     
