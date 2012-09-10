@@ -666,27 +666,35 @@ _.extend(_, {
   
   "Object": (function(){
     var CruxObject = function CruxObject(){};
-    CruxObject.subclass = function(obj, name){ return (new CruxObject).subclass.apply(this, arguments); };
+    CruxObject.subclass = function(obj, name){ return (new CruxObject).subclass(obj, name); };
     CruxObject.prototype = {
       constructor : CruxObject,
       _super      : Object,
-      //init        : function(){},
       toString    : function toString(){     return '[object '+(this.className || 'Object')+']';              },
       augment     : function augment(obj){   _.extend(this.constructor.prototype, obj); return this;          },
       mergeIndexes: function mergeIndexes(){ return _.mergeIndexes.apply(this, [this].concat(_slice.call(arguments, 0))); },
       extend      : function extend(obj){    return _.extend.apply(this, [this].concat(_slice.call(arguments, 0))); },
       extendKeys  : function extendKeys(){   _splice.call(arguments, 1, 0, this); _.extendKeys.apply(this, arguments); return this; },
+      _parent: function(methodName, arrayOfArguments){
+        if(methodName && _.isString(methodName)){
+          return this._super.prototype[methodName].apply(this, arrayOfArguments || []);
+        }
+      },
       subclass    : function subclass(obj, name){
         name = name || (obj ? obj.className : null) || this.className || '';
         //Create a function using the Function constructor so we can name the inner returned function with the className
         //Within the returned function, execute the default constructor in the context of the new object.
         //If the subclass has or inherited an init method, execute it with any arguments passed to this consructor
-        //var sub = Function('return function ' + name + '(){ arguments.callee.__parentContructor__.call(this); this.init && this.init.apply(this, arguments);}')();
-        //var sub = Function('return function ' + name + '(){ arguments.callee.__parentContructor__.call(this); arguments.callee.prototype.init && arguments.callee.prototype.init.apply(this, arguments);}')();
-        var sub = Function('return function ' + name + '(){ arguments.callee.prototype.init && arguments.callee.prototype.init.apply(this, arguments);}')();
-        //var sub = _.newFunction(name);
-        sub.subclass = function(obj, name){ return (new sub).subclass.apply(this, arguments); };
-        //console.log(arguments.callee.__parentContructor__);
+        var sub = Function('return function ' + name + '(){ !arguments.callee.noop && arguments.callee.prototype.init && arguments.callee.prototype.init.apply(this, arguments);}')();
+        
+        sub.subclass = function(obj, name){
+          var tmp = sub.noop;
+          sub.noop = true;
+          var newSub = new sub();
+          sub.noop = tmp;
+          return newSub.subclass.apply(newSub, arguments);
+        };
+        
         sub.prototype = _.extend(this, obj);
         this.className = name;
         this._super = sub.__parentContructor__ = this.constructor;
@@ -2270,7 +2278,7 @@ _.extend(_dom = _.dom = dom, {
     var el, key, attrs = '';
     //fix for an ie issue where, unless the element is created with a "name" attribute in
     //the funky ie syntax, radio groups dont' work properly
-    if(_detected.IECreateElement){
+    if(_detected.IECreateElement && objAttributes){
       attrs = '';
       ['type', 'name', 'value', 'checked', 'defaultChecked'].forEach(function(str){
         if(str in objAttributes && _hasOwnProperty.call(objAttributes, str)){
@@ -2287,7 +2295,7 @@ _.extend(_dom = _.dom = dom, {
         el.setAttribute(key, objAttributes[key]);
       }
     }
-    if(_hasOwnProperty.call(objAttributes, 'className') || _hasOwnProperty.call(objAttributes, 'classname')){
+    if(objAttributes && (_hasOwnProperty.call(objAttributes, 'className') || _hasOwnProperty.call(objAttributes, 'classname'))){
       _dom.addClass(el, objAttributes.className || objAttributes.classname);
     }
     for(key in objEvents){
@@ -2746,7 +2754,7 @@ var _ajax;
       var done,
           //maintain a reference to "this" for using within event listeners (their "this" is the current event target)
           ths = this,
-          //if the url already has a ? then add an &; otherwise, add a ?.
+          //if the url already has a ? then add an & otherwise, add a ?.
           url = this.url + ((this.url.indexOf('?')+1) ? '&' : '?') + this.serverCallbackName +'=__cruxData__._' + this.guid;
       //
       this.responseCode = undefined;
