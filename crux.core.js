@@ -960,7 +960,7 @@ _.extend(_events, {
       //it's Internet Explorer and we already detected event model 2 or the event is supported
       else if(target.attachEvent && (listeners.__eventModel__ == 2 || _events.supported(type, target))){
         //attach the event using the IE event model (bubble only)
-        target.attachEvent('on' + type, listeners.scopeFixer = function(e){ _executeListeners.call(target, e || window.event); });
+        target.attachEvent('on' + type, listeners.scopeFixer = function(e){ return _executeListeners.call(target, e || window.event); });
         //if it's the first time a listener has been added
         //add a listener to the window onunload event so that we can detach this event when the window unloads
         //(try to relase event listener memory on old IEs)
