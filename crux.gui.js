@@ -110,8 +110,8 @@ var components;
       "sizeToViewport": function(){
         var el = this.element;
         var g = _.dom.geometry();
-        el.style.height = g.viewportHeight + 'px';
-        el.style.width = g.viewportWidth + 'px';
+        el.style.height = g.viewportHeight + g.verticalScroll   - 15  + 'px';
+        el.style.width  = g.viewportWidth  + g.horizontalScroll + 'px';
       },
       "show": function(endOpacity){
         this._parent('show', [endOpacity || .4]);
@@ -149,7 +149,7 @@ var components;
     
     Content: components.Box.subclass({
       "init": function(){
-        this._parent('init', []);
+        this._parent('init');
         _.dom.addClass(this.element, 'contentComponent');
         _.extend(this.element.style, {
           "backgroundColor": "#eee",
@@ -179,8 +179,8 @@ var components;
           "height": "30px"
         });
 
-        el.innerHTML = '<div class="dragHandle" style="position:absolute; top: -30px;border-bottom: solid 1px; background-color: #eee;">Drag Handle</div>';
-        
+        el.innerHTML = '<div class="dragHandle" bunselectable="on" style="position:absolute; top: -30px;border-bottom: solid 1px; background-color: #eee;">Drag Handle</div>';
+
         this.attachTo = attachTo || document.getElementsByTagName('body')[0];
         this.components = {};
         
@@ -211,30 +211,48 @@ var components;
           obj.components.content.element.appendChild(el);
         });
         
+        //_.events.listenMany([el, el.firstChild], 'dragstart selectstart', function(objEvent){ objEvent.prevent(); });
+        _.events.listen(el.firstChild, 'selectstart', function(objEvent){ objEvent.prevent(); });
         
-        
+        var firstMove;
         _.listen(el, 'mousedown', function(objEvent){
-          //console.log(objEvent.target.tagName + '.' + _.dom.getClass(objEvent.target));
-          if(!_.dom.hasClass(objEvent.target, 'dragHandle')){
+          firstMove = true;
+          var hc = _.dom.hasClass(objEvent.target, 'dragHandle');
+          console.log(hc);
+          
+          if(!hc){
             return;
           }
+          
+          console.log('mousedown: ' + objEvent.target.tagName + '.' + _.dom.getClass(objEvent.target));
           
           objEvent.prevent();
           obj.initialMouseXY = [objEvent.x, objEvent.y];
           obj.initialBoxXY = [parseInt(_.dom.getStyle(el, 'left'), 10), parseInt(_.dom.getStyle(el, 'top'), 10)];
           
           _.listen(document, 'mousemove', moveListener);
-          
-          _.listen(document, 'mouseup', function mouseUpListener(){
+          //friggen ie
+          var mouseUpListener;
+          _.listen(document, 'mouseup', mouseUpListener = function(objEvent){
+
+            console.log('mouseup: ' + objEvent.target.tagName + '.' + _.dom.getClass(objEvent.target));
             _.unlisten(document, 'mousemove', moveListener);
             _.unlisten(document, 'mouseup', mouseUpListener);
             _.fire(obj, 'move', {bubbles: true});
           });
-          
         });
+        
         function moveListener(objEvent){
-          el.style.left = obj.initialBoxXY[0] + (objEvent.x - obj.initialMouseXY[0]) + 'px';
-          el.style.top  = obj.initialBoxXY[1] + (objEvent.y - obj.initialMouseXY[1]) + 'px';
+          var x = obj.initialBoxXY[0] + (objEvent.x - obj.initialMouseXY[0]) + 'px';
+          var y = obj.initialBoxXY[1] + (objEvent.y - obj.initialMouseXY[1]) + 'px';
+          if(el.style.left != x || el.style.top != y){
+            if(firstMove){
+              console.log('mousemove: ' + objEvent.target.tagName + '.' + _.dom.getClass(objEvent.target));
+              firstMove = false;
+            }
+            el.style.left = x;
+            el.style.top  = y;
+          }
         }
         this.show();
       },
@@ -300,7 +318,7 @@ var components;
                     window.oRequestAnimationFrame ||
                     function(f){ return setTimeout(f, mainStepInterval); };
   
-  //allow the "animation" property to pass through the native-event to crux-event conversion
+  //allow the "animation" property to pass through the event normalization process
   _.extend(_.events.Event.prototype.converters, {animation: true});
   
   //extend the gui module object
@@ -313,8 +331,10 @@ var components;
     
     //default values for animation and transitions
     defaults: {
-      "transition": "default",
-      "bezierPoints": [[0, 0], [250, 10], [50, -3], [100, 100]]
+      //"transition": "default",
+      "transition": "linear",
+      "bezierPoints": [[0, 0], [250, 10], [50, -3], [100, 100]],
+      "ignoreInactiveState": true
     },
     
   
@@ -326,7 +346,7 @@ var components;
       },
       "opacity": function(el, value){
         //set the opacity using the library method (and stay within the 0 to 100 range)
-        _.dom.setOpacity(el, Math.max(Math.min(value, 100), 0));
+        _.dom.setOpacity(el, Math.max(Math.min(value, 1), 0));
       },
       "size": function(el, values){
         //use the default adaptor to set the width, then the height
@@ -890,12 +910,7 @@ var components;
   //there are elements that need to be animated)
   //------------------------------------------------------------------------
   function animationStepper(){
-    //-------------REMOVE!!!!---------------------------------------
-    //-------------REMOVE!!!!---------------------------------------
-    windowActive = true;
-    //-------------REMOVE!!!!---------------------------------------
-    //-------------REMOVE!!!!---------------------------------------
-    
+    //some local variables
     var el, ar, objAni, firstQueued, key, thisProperty, transition,
         ct = (new Date()).getTime(); //current time
     
@@ -905,7 +920,6 @@ var components;
       stepLastFired = ct;
       return stepTrigger(animationStepper);
     }
-    
         
     //iterate through the array of animated elements
     for(var i=0, l=animatedElements.length; i< l; i++){
@@ -965,7 +979,7 @@ var components;
           }
           //console.log(windowActive, objAni.percentageComplete)
           //if the window isn't active, and it's not the final animation step
-          if(!windowActive && objAni.percentageComplete != 100){
+          if(!gui.defaults.ignoreInactiveState && !windowActive && objAni.percentageComplete != 100){
             continue; //skip the step
           }
           
