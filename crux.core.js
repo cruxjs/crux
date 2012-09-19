@@ -269,7 +269,8 @@ var _ = window[_externalName] = {
   //    lastValue("am.potatosalad.property", i); //returns undefined (since potatosalad is undefined)
   lastValue: function lastValue(chain, root){
     //if a second argument was passed, use it, even if the value is undefined
-    var v = arguments.length == 2 ? root : window, ar = chain.split('.');
+    var v  = arguments.length == 2 ? root : window,
+        ar = chain.split('.');
     //iterate over the properties in the chain and stop if the value is 
     //undefined or null (with type coercion, null == undefined)
     for(var i=0, l=ar.length; i<l && v != null; v = v[ar[i++]]){}
@@ -289,7 +290,6 @@ var _ = window[_externalName] = {
         objAdd, j;
     unique && jl--;
     for(j=1, objAdd=arguments[j]; j<jl; objAdd = arguments[++j]){
-      //console.log(arguments, j);
       if(objAdd && objAdd.length){
         if(!unique && (_detected.sliceNodeLists || (oia && _.isArray(objAdd)))){
           _splice.apply(obj, [obj.length,0].concat(_.isArray(objAdd) ? objAdd : _slice.call(objAdd, 0)));
@@ -366,7 +366,7 @@ var _ = window[_externalName] = {
       }
       return ar;
     } :
-    //the slower fallback makeRealArray function which is assigned if the browser doesn't support the "Array.slice" approach
+    //the slower fallback function which is assigned if the browser doesn't support the "Array.slice" approach
     function toArray(obj1, obj2, obj3){
       var ar = [], jl;
       for(var i=0, il=arguments.length, obj=arguments[i]; i<il; obj=arguments[++i]){
@@ -394,7 +394,7 @@ var _ = window[_externalName] = {
         }
       }
       //return the array of accumulated indexes
-        return ar;
+      return ar;
     }
   ,
    
@@ -408,7 +408,7 @@ var _ = window[_externalName] = {
   //When optional argument "copy" is truthy, a copy of the
   //original array is returned.
   //
-  //The splice and indexOf methods are refereced straight from
+  //The splice and indexOf methods are referenced straight from
   //the Array prototype, so technically you could pass an object with
   //a length property instead of an array.
   unique: function unique(ar, copy, start){
@@ -439,23 +439,122 @@ var _ = window[_externalName] = {
     return ar;
   },
   
-  
-  requires: function requires(moduleNamespace, modulePath, fn){
-    //TODO: add functionality to check passed namespaces
-    //need to have events system in place first.
-    if(1==1){
-      fn();
-      return true;
+  mac: (function(){
+    function mac(success, failure, complete, timeout){
+      if(!(this instanceof mac)){
+        return new mac(success, failure, complete, timeout);
+      }
+      success  && _.listen(this, 'success', success);
+      failure  && _.listen(this, 'failure', failure);
+      complete && _.listen(this, 'complete', complete);
+      this.conditions = [];
+      this.timeout = timeout;
     }
-    return false;
+    mac.prototype = {
+      add: function(msecTimeout){
+        var fn, t = this;
+        msecTimeout = msecTimeout || this.timeout;
+        this.conditions.push(fn = function(){ t.remove(fn); });
+        fn.startTime = (new Date).getTime();
+        isFinite(msecTimeout) && (fn.timeout = setTimeout(function(){ t.remove(fn, true); }, msecTimeout));
+        return fn;
+      },
+      remove: function(fn, fail){
+        var c = this.conditions,
+            i = c.indexOf(fn);
+        if(i > -1){
+          clearTimeout(c[i].timeout);
+          c.splice(i, 1);
+          if(!isFinite(this.status)){
+            if(fail){
+              this.status = 0;
+              _.fire(this, 'failure complete');
+              return;
+            }
+            (c.length == 0) && _.fire(this, 'success complete');
+          }
+        }
+      },
+      listen: function(obj){
+        var fn = this.add();
+        var t = this;
+        _.listen(obj, 'success', fn);
+        _.listen(obj, 'failure', function(){ t.remove(fn, true); });
+        return fn;
+      }
+    };
+    return mac;
+  })(),
+  
+  loadModule: function loadModule(url, namespace, timeout){
+    var o, doSuccess, doFailure,
+        timeout = timeout || 10000, 
+        loading = _.loadModule.loading || (_.loadModule.loading = {});
+    
+    if(loading[namespace]){
+      return loading[namespace];
+    }
+    else if(!_.lastValue(namespace)){
+      loading[namespace] = o = {
+        url: url,
+        namespace: namespace,
+        startTime: (new Date).getTime(),
+      };
+      _.events.latch(o, 'success failure');
+      
+      var el = _.dom.make('script', {"src": url, "type": "text/javascript"});
+      
+      _.listen(el, "load", doSuccess = function(){
+        if(!isFinite(o.status)){
+          o.status = 1;
+          delete loading[namespace];
+          _.fire(o, "success");
+          return true;
+        }
+      });
+      _.listen(el, "error", doFailure = function(e){
+        if(!isFinite(o.status)){
+          o.status = 0;
+          delete loading[namespace];
+          _.fire(o, "failure");
+          return true;
+        }
+      });
+      
+      o.timeout = setTimeout(function(){
+        if(!isFinite(o.status)){
+          if(_.lastValue(namespace) && doSuccess()){ return; }
+          else if((new Date).getTime() > o.startTime + timeout && doFailure()){ return; }
+          o.timeout = setTimeout(arguments.callee, 100);
+        }
+      }, 100);
+      
+      document.getElementsByTagName('head')[0].appendChild(el);
+    }
+    return o;
+  },
+  
+  requires: function requires(modules, success, failure){
+    var mac = new _.mac(success, failure);
+    modules = _.isArray(modules) ? modules : [modules];
+    modules.forEach(function(obj){
+      //if it's a string, use it for the url and trim some parts of the url for the namespace
+      obj = _.isString(obj) ? {url: obj, namespace: _str.parseUri(obj).file.replace(/\.[^/.]+$/, "")} : obj;
+      var ns = _.lastValue(obj.namespace);
+      if(!ns){ // || (ns && obj.version && ns.version < obj.version)){
+        mac.listen(_.loadModule(obj.url, obj.namespace));
+      }
+    });
+    !mac.conditions.length && success();
+    return mac;
   },
   
   /***************************************************************/
   //getData
   //
   getData: function getData(obj, key){
-    //get a ref to the object where the data is stored
-    //(for non-elements it's just on the object itself, otherwise it in out element data cache)
+    //get a reference to the object where the data is stored
+    //(for DOMElements, it's in the element data cache under the element's GUID, otherwise it's just on the object itself)
     var cache  = (_hasOwnProperty.call(obj, '__cruxData__') && obj.__cruxData__) || (_hasOwnProperty.call(obj, '__cruxGUID__') && obj.__cruxGUID__ && _cache.elementData[obj.__cruxGUID__]);
     //return the data by it's key or the whoel object if the key was undefined
     return (!key && cache) || ((cache && _hasOwnProperty.call(cache, key)) ? cache[key] : undefined);
@@ -761,50 +860,51 @@ var _events  = _.events = {};
 //and the event object is passed as the first argument 
 function _executeListeners(ev){
   var r, o, listeners,
-      objEvent = (ev),
-      obj = _.getData(this, '__listeners__');
+      //if ev is a crux event, use it. otherwise, if the native event has a "cruxEvent" 
+      //property, use it. if not fallback to creating a new crux event object
+      //TODO: circular reference between the cruxEvent and the nativeEvent objects....
+      e = ev instanceof _events.Event ? ev : (ev.cruxEvent || new _events.Event);
   
-  if(!(objEvent instanceof _events.Event)){
-    //TODO: circular reference between the cruxEvent and the nativeEvent objects....
-    objEvent = ev.cruxEvent || new _events.Event;
-  }
+  //if the event object hasn't been normalized, do it
+  !e.normalized && e.normalize(e.nativeEvent || ev);
+  //if there isn't a target on the event object yet, assign "this"
+  e.target = e.target || this;
+  //and current target will always be this
+  e.currentTarget = this;
   
-  !objEvent.normalized && objEvent.normalize(objEvent.nativeEvent || ev);
-  objEvent.target = objEvent.target || this;
-  objEvent.currentTarget = this;//_events.Event.prototype.converters.target(ev);
-  //try{console.log(this, ev, objEvent);}catch(x){}
-  //if the element has a listener container
-  if(obj){
-    
+  //if the element has any listeners for this event type
+  if(listeners = _.lastValue(e.type, _.getData(this, '__listeners__'))){
     //take a copy of the handlers that were effective at the time the event was fired
-    listeners = _.toArray(obj[objEvent.type]);
+    //(only copy those that are bubble phase listeners and have a matching namespace)
+    listeners = listeners.filter(function(o){
+      return (!o.capture && _events.namespaceMatch(e.eventNamespace, o.namespace));
+    });
     //execute the listeners in the order they were added
     for(var i=0, l=listeners.length; i<l; i++){
+      //the current listener will be called "o"
       o = listeners[i];
       //if immediate propagation has been stopped, break out of the for loop
-      if(objEvent.immediateStopped && objEvent.immediateStopped()){
-        break;
-      }
-      if(_events.namespaceMatch(objEvent.eventNamespace, o.namespace)){
-        //encapsulate the execution of the listener inside a browser event
-        if(o.once){ _events.unlisten(this, (o.namespace ? o.namespace + '.': '') + objEvent.type, o.fn); }
-        //update the "listenerNamespace" property on the event object with the current listener namespace
-        objEvent.listenerNamespace = o.namespace;
-        //
-        //r = o.fn.call(this, o.noWrap ? objEvent.nativeEvent : objEvent);
-        //execute the listener and if it returns false, prevent the event default
-        (r = _events.BEEP(o.fn, [o.noWrap ? objEvent.nativeEvent : objEvent], this)) === false && objEvent.prevent();
-        //if it was the beforeunload event, they might try and return a string (used to prompt the user) 
-        (objEvent.type === 'beforeunload' && _.isString(r)) && (objEvent.returnValue = r);
-      }
+      if(e.immediateStopped && e.immediateStopped()){ break; }
+      //encapsulate the execution of the listener inside a browser event
+      if(o.once){ _events.unlisten(this, (o.namespace ? o.namespace + '.': '') + e.type, o.fn); }
+      //update the "listenerNamespace" property on the event object with the current listener name space
+      e.listenerNamespace = o.namespace;
+      //get the listener return value (use BEEP to execute non-browser events)
+      r = listeners.__eventType__ == 3 ?
+        _events.BEEP(o.fn, [o.noWrap ? e.nativeEvent : e], this) :
+        o.fn.call(this, o.noWrap ? e.nativeEvent : e);
+      //if the return value was false, prevent the default action
+      (r === false) && e.prevent();
+      //if it was the beforeunload event, they might try and return a string (used to prompt the user) 
+      (e.type === 'beforeunload' && _.isString(r)) && (e.returnValue = r);
     }
   }
-  //if the crux event obejct returnValue was updated, update the native event object return value
-  objEvent.nativeEvent.returnValue = objEvent.returnValue;
-  //if this is the window object and we haven't already prevented the default action, execute the default actions function
-  (this === window) && !objEvent.prevented() && _doDefaultActions(objEvent);
+  //if the crux event object returnValue was updated, update the native event object return value
+  e.nativeEvent.returnValue = e.returnValue;
+  //if this is the window object and we haven't prevented the default action, execute the default actions
+  (this === window) && !e.prevented() && _doDefaultActions(e);
   //return the event return value
-  return objEvent.returnValue;
+  return e.returnValue;
 }
 
 
@@ -833,7 +933,7 @@ _.extend(_events, {
   /***************************************************************/
   //---------------------------------------------------------------------------
   //_demux
-  //takes arguments for the event methods and demultiplexes then from arrays,
+  //takes arguments for the event methods and demultiplexes them from arrays,
   //collections and space separated strings, calling the "this" for each combination of arguments
   // eg. _demux.call(_listen, "div, .someClass", ")
   //---------------------------------------------------------------------------
@@ -871,6 +971,7 @@ _.extend(_events, {
   listen: function listen(target, type, listener){
       var noWrap = arguments[3], //don't show the internally used "noWrap" argument
         once = arguments[4],
+        useCapture = arguments[5], //future feature
         emulated = _events.emulated,
         eventNamespace = '',
         savedSelector = target,
@@ -941,7 +1042,7 @@ _.extend(_events, {
     //TODO: figure out if we need to allow adding a listener for each namespace
     if(listeners.length == 0 || !listeners.some(function(o){ return o.fn == listener; })){
       //just push the listener onto the end of the array
-      listeners.push({fn: listener, namespace: eventNamespace, once: !!once, noWrap: !!noWrap});
+      listeners.push({fn: listener, namespace: eventNamespace, once: !!once, noWrap: !!noWrap, capture: !!useCapture});
     }
     //the listener has already been added
     else{
@@ -953,39 +1054,44 @@ _.extend(_events, {
     //add the event listener. specify false for the last argument to use the bubbling phase (to mirror IE's limitation to only bubble)
     //(if the addEventListener method returns false, move to the next event model)
     if(!listeners.hooked){
-      if(target.addEventListener && target.addEventListener(type, _executeListeners, false) !== false){
+      if(target.addEventListener && target.addEventListener(type, _executeListeners, useCapture) !== false){
         //return the event model used to add the event listener
         listeners.__eventModel__ = 1;
       }
-      //it's Internet Explorer and we already detected event model 2 or the event is supported
-      else if(target.attachEvent && (listeners.__eventModel__ == 2 || _events.supported(type, target))){
-        //attach the event using the IE event model (bubble only)
-        target.attachEvent('on' + type, listeners.scopeFixer = function(e){ return _executeListeners.call(target, e || window.event); });
-        //if it's the first time a listener has been added
-        //add a listener to the window onunload event so that we can detach this event when the window unloads
-        //(try to relase event listener memory on old IEs)
-        window.attachEvent('onunload', function(){ target.detachEvent('on' + type, listeners.scopeFixer); });
-        //the event model used to add the event listener
-        listeners.__eventModel__ = 2;
-      }
-      //if nothing has worked yet... fallback to the AERM method
       else{
-        //if this is a DOMElement or the window object and if the
-        //object doesn't have our "on" + type function assigned to "fireAERMListeners"
-        //(which means this is the first time an aerm listener has been added for this type)
-        if(_.isElement(target, true, true)){
-          //record the old value (in case someone manually assigned a listener already, or it was in the HTML)
-          var fnOldStyleFunction = target['on' + type];
-          //assign our listener
-          target['on' + type] = (listeners.scopeFixer = function(e){ _executeListeners.call(target, e || window.event); });
-          //and if the old function is 
-          if(typeof fnOldStyleFunction == 'function'){
-            //add the old manual style event listener (global namespace)
-            listen(target, type, fnOldStyleFunction, true);
-          }
+        //assign a small listener that creates a closure to restore the proper scope, when executed (this == target)
+        listeners.scopeFixer = function(e){ return _executeListeners.call(target, e || window.event); }
+        
+        //it's Internet Explorer and we already detected event model 2 or the event is supported
+        if(target.attachEvent && (listeners.__eventModel__ == 2 || _events.supported(type, target))){
+          //attach the event using the IE event model (bubble only)
+          target.attachEvent('on' + type, listeners.scopeFixer);
+          //if it's the first time a listener has been added
+          //add a listener to the window onunload event so that we can detach this event when the window unloads
+          //(try to release event listener memory on old IEs)
+          window.attachEvent('onunload', function(){ target.detachEvent('on' + type, listeners.scopeFixer); });
+          //the event model used to add the event listener
+          listeners.__eventModel__ = 2;
         }
-        //record the event model used to attach the listener
-        listeners.__eventModel__ = 3;
+        //if nothing has worked yet... fall back to the AERM method
+        else{
+          //if this is a DOMElement or the window object and if the
+          //object doesn't have our "on" + type function assigned to "fireAERMListeners"
+          //(which means this is the first time an AERM listener has been added for this type)
+          if(_.isElement(target, true, true)){
+            //record the old value (in case someone manually assigned a listener already, or it was in the HTML)
+            var fnOldStyleFunction = target['on' + type];
+            //assign the scopeFixer/listener executor
+            target['on' + type] = listeners.scopeFixer;
+            //and if the old function is 
+            if(typeof fnOldStyleFunction == 'function'){
+              //add the old manual style event listener (global name space)
+              listen(target, type, fnOldStyleFunction, true, arguments[4]);
+            }
+          }
+          //record the event model used to attach the listener
+          listeners.__eventModel__ = 3;
+        }
       }
       listeners.hooked = true;
     }
@@ -2144,9 +2250,7 @@ _.extend(_dom = _.dom = dom, {
     if(!el || !el.setAttribute){
       return false;
     }
-    if(_dom.getClass(el) !== str){
-      el.setAttribute(_detected.CSSClassAttribute, str);
-    }
+    el.setAttribute(_detected.CSSClassAttribute, str);
     return str;
   },
   
@@ -2238,7 +2342,9 @@ _.extend(_dom = _.dom = dom, {
   //returns true if the element has the specified class name, otherwise returns false.
   hasClass: function hasClass(elementOrArray, strClassToCheckFor){
     //if an array of elements was passed in, just set ar equal to it, otherwise, make an array with a single element
-    var ar = _.isElement(elementOrArray) ? [elementOrArray] : elementOrArray,
+    var isElement = _.isElement(elementOrArray),
+        ar = isElement ? [elementOrArray] : elementOrArray,
+        //TODO: eliminate arguments.callee
         cache = _config.classRECaching ? arguments.callee.cache || (arguments.callee.cache = {}) : {},
         l = ar.length,
         arReturn = [],
@@ -2248,10 +2354,12 @@ _.extend(_dom = _.dom = dom, {
     
     for(i=0; i<l; i++){
       el = ar[i];
+      /*
       if(!_.isElement(el)){
         arReturn.push(false);
         continue;
       }
+      */
       //see if the element implements the html5 classList interface
       if('classList' in el && el.classList.contains){
         arReturn.push(strClassToCheckFor.split(' ').every(function(str){ return (!str ? true : el.classList.contains(str)); }));
@@ -2259,8 +2367,7 @@ _.extend(_dom = _.dom = dom, {
       else if(strClass = _dom.getClass(el)){
         //
         arReturn.push(strClassToCheckFor.split(' ').every(function(str){
-          //return (!str ? true : (getRegExp('hasClass_re1_' + str) || addRegExp('hasClass_re1' + str, new RegExp('\\b' + str + '\\b', 'g'))).test(strClass));
-          return (!str ? true : (cache[str] || (cache[str] = new RegExp('\\b' + str + '\\b', 'g'))).test(strClass));
+          return (!str ? true : (cache[str] || (cache[str] = new RegExp('\\b' + str + '\\b'))).test(strClass));
         }));
       }
       else{
@@ -2268,7 +2375,7 @@ _.extend(_dom = _.dom = dom, {
       }
     }
   
-    return (arReturn.length==1) ? arReturn[0] : arReturn;
+    return (isElement ? arReturn[0]: arReturn);
   },
   
   /***************************************************************/
