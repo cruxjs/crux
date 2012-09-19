@@ -25,7 +25,7 @@
 			}
 		</style>
 		<script type="text/javascript" src="crux.core.js"></script>
-		<script type="text/javascript" src="crux.gui.js"></script>
+		<!--<script type="text/javascript" src="crux.gui.js"></script>-->
 		<script type="text/javascript">
 			var dc;
 			crux.ready(function(){
@@ -34,6 +34,19 @@
 			  crux.listen("#inputElement", 'enterkeypress', function(o){ console.log(o);});
 			  crux.listen("div", "DOMMouseScroll", function(o){ console.log(o); });
 			});
+			
+			crux.requires(
+			  [
+				{"url": "crux.gui.js", "namespace": "crux.gui"}//,
+				//{"url": "crux.ui.js", "namespace": "crux.ui"}
+			  ],
+			  function(){
+				new crux.gui.components.DragBox();
+			  },
+			  function(){
+			  	throw 'required modules couldn\'t be loaded';
+			  }
+			);
 		</script>
 	</head>
 
