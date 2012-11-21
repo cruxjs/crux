@@ -2049,7 +2049,18 @@ _.extend(_str = _.str = {}, {
     return parseUri;
   })(),
   
-  cleanWordMarkup: function cleanWordMarkup(str){
+ //this function removes the extra garbage code that Windows places when something is pasted
+ //removes most extra markup code - 
+ //FIX - currently removes <a> tags, this is probably not wanted
+  cleanMarkup: function cleanMarkup(str){
+    str = str.replace(/<\?xml[^<]+?>/gim,'');
+    str = str.replace(/(<v[^<]+?>)*(<v[^<]+?>)/gim,'');  
+    str = str.replace(/(<w[^<]+?>)*(<w[^<]+?>)/gim,'');
+    str = str.replace(/(<b>)|(<\/b>)/g,'');
+    //remove align parameters
+    str = str.replace(/align=[^>]+/gim,'');
+    //remove <b> bold tags
+    //str = str.replace(/<b>|<\/b>/gim,'');
     // Remove unnecessary tag spans (comments and title)
     str = str.replace(/\<\!--(\w|\W)+?--\>/gim, '');
     str = str.replace(/\<title\>(\w|\W)+?\<\/title\>/gim, '');
@@ -2070,7 +2081,7 @@ _.extend(_str = _.str = {}, {
     // Fix entites
     str = str.replace("&ldquo;", "\"");
     str = str.replace("&rdquo;", "\"");
-    str = str.replace("&mdash;", "â€“");
+    str = str.replace("&mdash;", "–");
     return str;
   }
 });
