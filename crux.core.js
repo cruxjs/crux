@@ -498,12 +498,19 @@ var _ = window[_externalName] = {
       loading[namespace] = o = {
         url: url,
         namespace: namespace,
-        startTime: (new Date).getTime(),
+        startTime: (new Date).getTime()
       };
       _.events.latch(o, 'success failure');
       
       var el = _.dom.make('script', {"src": url, "type": "text/javascript"});
       
+      //redirect the IE onreadystatechange event to the standard load event
+      _.listen(el, "onreadystatechange", function(){
+        if(this.readyState == 'loaded' || this.readyState == 'complete'){
+          _.unlisten(this, "onreadystatechange", arguments.callee);
+          _.fire(el, "load");
+        }
+      });
       _.listen(el, "load", doSuccess = function(){
         if(!isFinite(o.status)){
           o.status = 1;
